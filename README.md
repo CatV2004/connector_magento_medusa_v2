@@ -1,0 +1,1 @@
+# connector_magento_medusa_v2
