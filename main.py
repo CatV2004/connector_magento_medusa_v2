@@ -330,7 +330,6 @@ def view_dlq():
 
 
 def export_dlq_to_csv_interactive():
-    """Export DLQ to CSV interactively"""
     entities = ['products', 'categories', 'customers']
     
     print("\nSelect entity to export:")
@@ -365,7 +364,6 @@ def export_dlq_to_csv_interactive():
 
 
 def run_pipeline_interactive(magento: MagentoConnector, medusa: MedusaConnector):
-    """Run pipeline interactively"""
     print("\n" + "=" * 50)
     print("RUN SYNC PIPELINE")
     print("=" * 50)
@@ -403,7 +401,6 @@ def run_pipeline_interactive(magento: MagentoConnector, medusa: MedusaConnector)
 
 
 def run_full_pipeline(magento: MagentoConnector, medusa: MedusaConnector, dry_run: bool = False):
-    """Run full pipeline"""
     print(f"\n{'🚀 STARTING FULL SYNC PIPELINE' if not dry_run else '🔧 STARTING DRY RUN'}")
     if dry_run:
         print("⚠️  DRY RUN MODE - No changes will be made")
@@ -433,7 +430,6 @@ def run_full_pipeline(magento: MagentoConnector, medusa: MedusaConnector, dry_ru
 
 
 def configure_custom_pipeline(magento: MagentoConnector, medusa: MedusaConnector):
-    """Configure and run custom pipeline"""
     print("\nCustom pipeline configuration")
     print("-" * 30)
     

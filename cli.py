@@ -20,7 +20,7 @@ from connectors.medusa.medusa_connector import MedusaConnector
 from services.category_sync_service import CategorySyncService
 from services.product_sync_service import ProductSyncService
 from services.customer_sync_service import CustomerSyncService
-from core.pipeline import create_pipeline, SyncPipeline, AsyncSyncPipeline
+from core.pipeline import create_pipeline, SyncPipeline
 
 
 def create_parser():
