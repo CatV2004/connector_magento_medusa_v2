@@ -1,0 +1,235 @@
+version: "1.0"
+source: "magento"
+target: "medusa"
+entity: "product"
+
+# Field mappings
+fields:
+  # Basic product information
+  sku:
+    target: "sku"
+    required: true
+    type: "string"
+    transform: "clean_sku"
+    
+  name:
+    target: "title"
+    required: true
+    type: "string"
+    transform: "strip"
+    
+  type_id:
+    target: "type"
+    required: true
+    type: "string"
+    default: "simple"
+    
+  status:
+    target: "status"
+    required: true
+    type: "integer"
+    transform: "map_status"
+    
+  visibility:
+    target: "metadata.visibility"
+    required: false
+    type: "integer"
+    default: 4
+    
+  # Descriptions
+  description:
+    target: "description"
+    required: false
+    type: "string"
+    transform: "html_to_text"
+    
+  short_description:
+    target: "metadata.short_description"
+    required: false
+    type: "string"
+    transform: "html_to_text"
+    
+  # Pricing
+  price:
+    target: "variants[0].prices[0].amount"
+    required: false
+    type: "float"
+    transform: "normalize_price"
+    
+  special_price:
+    target: "metadata.special_price"
+    required: false
+    type: "float"
+    transform: "normalize_price"
+    
+  cost:
+    target: "metadata.cost"
+    required: false
+    type: "float"
+    transform: "normalize_price"
+    
+  # Inventory
+  quantity:
+    target: "variants[0].inventory_quantity"
+    required: false
+    type: "integer"
+    default: 0
+    
+  is_in_stock:
+    target: "variants[0].manage_inventory"
+    required: false
+    type: "boolean"
+    transform: "map_inventory"
+    
+  min_sale_qty:
+    target: "metadata.min_sale_qty"
+    required: false
+    type: "integer"
+    default: 1
+    
+  max_sale_qty:
+    target: "metadata.max_sale_qty"
+    required: false
+    type: "integer"
+    default: 10000
+    
+  # SEO & URLs
+  url_key:
+    target: "handle"
+    required: false
+    type: "string"
+    transform: "slugify"
+    
+  meta_title:
+    target: "metadata.meta_title"
+    required: false
+    type: "string"
+    
+  meta_description:
+    target: "metadata.meta_description"
+    required: false
+    type: "string"
+    
+  meta_keywords:
+    target: "metadata.meta_keywords"
+    required: false
+    type: "string"
+    
+  # Weight & Dimensions
+  weight:
+    target: "variants[0].weight"
+    required: false
+    type: "float"
+    
+  length:
+    target: "metadata.length"
+    required: false
+    type: "float"
+    
+  width:
+    target: "metadata.width"
+    required: false
+    type: "float"
+    
+  height:
+    target: "metadata.height"
+    required: false
+    type: "float"
+    
+  # Dates
+  created_at:
+    target: "created_at"
+    required: false
+    type: "datetime"
+    
+  updated_at:
+    target: "updated_at"
+    required: false
+    type: "datetime"
+    
+  # Custom attributes (will be mapped dynamically)
+  custom_attributes:
+    target: null  # Handled separately
+    required: false
+    type: "array"
+
+# Product type specific mappings
+type_mappings:
+  simple:
+    fields:
+      price:
+        target: "variants[0].prices[0].amount"
+      quantity:
+        target: "variants[0].inventory_quantity"
+        
+  configurable:
+    fields:
+      price:
+        target: "variants[0].prices[0].amount"  # Will use child product price
+      has_variants: true
+      
+  bundle:
+    fields:
+      price:
+        target: "variants[0].prices[0].amount"
+      is_bundle: true
+      
+  grouped:
+    fields:
+      is_grouped: true
+
+# Variant mappings
+variant_fields:
+  sku:
+    target: "sku"
+    required: true
+    
+  price:
+    target: "prices[0].amount"
+    required: true
+    transform: "normalize_price"
+    
+  quantity:
+    target: "inventory_quantity"
+    required: false
+    
+  weight:
+    target: "weight"
+    required: false
+    
+  manage_inventory:
+    target: "manage_inventory"
+    required: false
+    default: true
+
+# Custom transformations
+transformations:
+  handle:
+    rule: "if_empty(slugify(name))"
+    
+  subtitle:
+    rule: "if_empty(truncate(short_description, 100))"
+    
+  thumbnail:
+    rule: "first_image_url"
+    
+  variants:
+    rule: "build_variants(type_id, configurable_children)"
+    
+  options:
+    rule: "build_options(type_id, configurable_options)"
+
+# Validation rules
+validation:
+  required_fields: ["sku", "name"]
+  unique_fields: ["sku"]
+  max_length:
+    title: 255
+    description: 10000
+    sku: 64
+  price_range:
+    min: 0
+    max: 1000000
+  quantity_range:
+    min: 0
+    max: 100000

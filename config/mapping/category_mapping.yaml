@@ -1,0 +1,97 @@
+version: "1.0"
+source: "magento"
+target: "medusa"
+entity: "category"
+
+# Field mappings
+fields:
+  # Direct field mappings
+  name: 
+    target: "name"
+    required: true
+    type: "string"
+    transform: "strip"
+    
+  description:
+    target: "description"
+    required: false
+    type: "string"
+    transform: "html_to_text"
+    
+  is_active:
+    target: "is_active"
+    required: false
+    type: "boolean"
+    default: true
+    
+  include_in_menu:
+    target: "is_internal"
+    required: false
+    type: "boolean"
+    transform: "invert_boolean"
+    
+  parent_id:
+    target: "parent_category_id"
+    required: false
+    type: "string"
+    transform: "map_parent_id"
+
+  level:
+    target: null  # Not mapped to Medusa
+    required: false
+    type: "integer"
+    
+  position:
+    target: "metadata.position"
+    required: false
+    type: "integer"
+    
+  meta_title:
+    target: "metadata.meta_title"
+    required: false
+    type: "string"
+    
+  meta_description:
+    target: "metadata.meta_description"
+    required: false
+    type: "string"
+    
+  meta_keywords:
+    target: "metadata.keywords"
+    required: false
+    type: "string"
+    
+  url_key:
+    target: "handle"
+    required: false
+    type: "string"
+    transform: "slugify"
+    
+  created_at:
+    target: "created_at"
+    required: false
+    type: "datetime"
+    
+  updated_at:
+    target: "updated_at"
+    required: false
+    type: "datetime"
+
+# Custom transformations
+transformations:
+  handle:
+    rule: "if_empty(slugify(name))"
+    
+  is_internal:
+    rule: "not(include_in_menu)"
+    
+  parent_category_id:
+    rule: "if(parent_id > 2, map_id(parent_id), null)"
+
+# Validation rules
+validation:
+  required_fields: ["name"]
+  unique_fields: ["name"]
+  max_length:
+    name: 100
+    description: 1000

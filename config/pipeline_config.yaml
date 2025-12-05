@@ -1,0 +1,95 @@
+# Pipeline configuration
+version: "1.0"
+name: "Magento to Medusa Full Sync"
+description: "Complete data synchronization pipeline"
+
+# Pipeline settings
+settings:
+  max_concurrent_steps: 3
+  timeout: 7200  # 2 hours
+  retry_policy:
+    max_retries: 3
+    backoff_factor: 2
+    max_backoff: 60
+
+# Step configurations
+steps:
+  test_connections:
+    enabled: true
+    timeout: 30
+    retries: 2
+    
+  sync_categories:
+    enabled: true
+    depends_on: ["test_connections"]
+    params:
+      batch_size: 100
+      include_inactive: false
+    timeout: 600
+    retries: 2
+    
+  sync_products:
+    enabled: true
+    depends_on: ["sync_categories"]
+    params:
+      batch_size: 50
+      max_pages: null
+      include_variants: true
+      upload_images: true
+    timeout: 3600
+    retries: 3
+    
+  sync_customers:
+    enabled: true
+    depends_on: ["test_connections"]
+    params:
+      batch_size: 100
+      include_orders: false
+    timeout: 1800
+    retries: 2
+    
+  sync_orders:
+    enabled: false  # Disabled by default
+    depends_on: ["sync_customers", "sync_products"]
+    params:
+      batch_size: 50
+      days_back: 30
+    timeout: 1800
+    retries: 3
+    
+  process_dlq:
+    enabled: true
+    depends_on: ["sync_categories", "sync_products", "sync_customers"]
+    params:
+      retry_failed: true
+      export_to_csv: true
+    timeout: 300
+    retries: 1
+    
+  generate_report:
+    enabled: true
+    depends_on: ["process_dlq"]
+    params:
+      format: "json"
+      include_details: true
+    timeout: 60
+    retries: 1
+
+# Notifications
+notifications:
+  email:
+    enabled: false
+    recipients: []
+    on_success: true
+    on_failure: true
+    
+  webhook:
+    enabled: false
+    url: ""
+    events: ["pipeline_start", "pipeline_complete", "pipeline_failed"]
+
+# Data retention
+retention:
+  keep_reports_days: 30
+  keep_logs_days: 7
+  keep_dlq_days: 14

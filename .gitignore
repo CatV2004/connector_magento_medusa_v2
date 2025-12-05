@@ -26,6 +26,7 @@ share/python-wheels/
 *.egg
 MANIFEST
 
+
 # PyInstaller
 #  Usually these files are written by a python script from a template
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
@@ -205,3 +206,38 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+.early.coverage
+
+
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs directory
+logs/
+
+# Data / exports / pipelines (tùy project)
+dlq/
+exports/
+backups/
+pipeline_state_*.json
+pipeline_results_*.json
+pipeline_report_*.json
+sync_report_*.json
+*_dlq_export_*.json
+*_dlq_export_*.csv
+
+# Environment
+.env.local
+
+# Temp files
+*.tmp
+*.temp
+
+# OS files
+.DS_Store
+Thumbs.db
