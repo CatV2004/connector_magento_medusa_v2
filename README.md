@@ -27,8 +27,8 @@ A professional, enterprise-grade data synchronization tool for migrating data fr
 
 1. Clone the repository:
    ```bash
-   git clone <repository-url>
-   cd connectors
+   git clone https://github.com/CatV2004/connector_magento_medusa_v2.git
+   cd connector_magento_medusa_v2
    ```
 
 2. Install dependencies:
