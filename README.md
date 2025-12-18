@@ -444,8 +444,8 @@ Contributions are welcome! Please follow these steps:
 4. **Push to the branch**
    ```bash
    git push origin feature/amazing-feature
-```
-5. **Open a Pull Request**
+   ```
+4. **Open a Pull Request**
 Please ensure your code adheres to the existing style (Black formatter) and includes appropriate tests.
 
 ## 📄 License
@@ -468,5 +468,5 @@ Start with the following command to preview what will be synced:
 
 ```bash
 python cli.py migrate-all --dry-run
-
+```
 
