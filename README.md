@@ -6,7 +6,7 @@
 
 A production-grade, modular data migration pipeline designed to synchronize e-commerce data from Magento 2 (Enterprise) to Medusa (Headless Commerce). This tool handles complex EAV model transformation, data validation, and idempotent synchronization for core entities like Products, Categories, Customers, and Orders.
 
-> **Project Genesis:** This tool was developed as part of a structured 12-week capstone project, evolving from foundational platform setup to a fully-featured, demo-ready migration pipeline.
+> **Project Genesis:** This tool was developed as part of a structured 8-week capstone project, evolving from foundational platform setup to a fully-featured, demo-ready migration pipeline.
 
 ## 📋 Table of Contents
 
@@ -472,12 +472,12 @@ This project was executed as a structured **learning and development journey**, 
 
 | Week | Focus Area | Deliverables (Included in this Repo) |
 |-----:|------------|--------------------------------------|
-| 5 | Platform Foundation | Magento + Medusa Docker setup, API exploration, sample data import |
-| 6 | Connector Layer | Robust `magento_connector.py` & `medusa_connector.py` with authentication, pagination, and rate-limit handling |
-| 7–8 | Schema Mapping & Products | YAML-based mapping system, `product_transformer.py`, `product_validator.py`, working product & category migration |
-| 9 | Customers & Addresses | Customer and address mapping, GDPR-compliant password handling (reset email flow) |
-| 10–11 | Orders & Transactions | Complex order migration with consistency checks, inventory sync logic, delta migration capability |
-| 12 | Capstone & Demo | Final integration, Docker Compose environment, comprehensive logging, and live demo preparation |
+| 1 | Platform Foundation | Magento + Medusa Docker setup, API exploration, sample data import |
+| 2 | Connector Layer | Robust `magento_connector.py` & `medusa_connector.py` with authentication, pagination, and rate-limit handling |
+| 3–4 | Schema Mapping & Products | YAML-based mapping system, `product_transformer.py`, `product_validator.py`, working product & category migration |
+| 5 | Customers & Addresses | Customer and address mapping, GDPR-compliant password handling (reset email flow) |
+| 6–7 | Orders & Transactions | Complex order migration with consistency checks, inventory sync logic, delta migration capability |
+| 8 | Capstone & Demo | Final integration, Docker Compose environment, comprehensive logging, and live demo preparation |
 
 This roadmap reflects a progression from foundational platform understanding to a fully operational, production-style migration system.
 
