@@ -1,62 +1,52 @@
-# Magento to Medusa Data Sync Tool
+# Magento to Medusa Migration & Sync Tool
 
-A professional, enterprise-grade data synchronization tool for migrating data from Magento 2 to Medusa e-commerce platform.
+![Python Version](https://img.shields.io/badge/python-3.8%2B-blue)
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+![Code Style: Black](https://img.shields.io/badge/code%20style-black-000000.svg)
 
-## Features
+A production-grade, modular data migration pipeline designed to synchronize e-commerce data from Magento 2 (Enterprise) to Medusa (Headless Commerce). This tool handles complex EAV model transformation, data validation, and idempotent synchronization for core entities like Products, Categories, Customers, and Orders.
 
-- **Dynamic Field Mapping**: YAML-based configuration for flexible field mapping
-- **Multiple Entity Support**: Products, Categories, Customers, Orders
-- **Data Transformation**: Built-in transformers for data normalization
-- **Validation Framework**: Comprehensive validation with DLQ (Dead Letter Queue)
-- **Batch Processing**: Efficient batch processing with rate limiting
-- **Error Handling**: Robust error handling with retry mechanisms
-- **Cloudinary Integration**: Automatic image upload and optimization
-- **CLI Interface**: Easy-to-use command line interface
-- **Comprehensive Logging**: Detailed logging for debugging and monitoring
+> **Project Genesis:** This tool was developed as part of a structured 12-week capstone project, evolving from foundational platform setup to a fully-featured, demo-ready migration pipeline.
 
-## Installation
+## 📋 Table of Contents
 
-### Prerequisites
+- [✨ Core Features](#-core-features)
+- [🏗️ Architecture & Design Philosophy](#️-architecture--design-philosophy)
+- [📁 Project Structure](#-project-structure)
+- [⚙️ Installation & Quick Start](#️-installation--quick-start)
+- [🚀 Usage: CLI & Migration Pipeline](#-usage-cli--migration-pipeline)
+- [🔧 Configuration: Mapping & Transformation](#-configuration-mapping--transformation)
+- [📊 Data Model & Supported Entities](#-data-model--supported-entities)
+- [🔍 Validation, Logging & DLQ](#-validation-logging--dlq)
+- [🧪 Testing](#-testing)
+- [🐳 Docker Deployment (Capstone Week 12)](#-docker-deployment-capstone-week-12)
+- [📈 Project Roadmap (12-Week Plan)](#-project-roadmap-12-week-plan)
+- [🤝 Contributing](#-contributing)
+- [📄 License](#-license)
 
-- Python 3.8+
-- Magento 2 REST API access
-- Medusa Admin API access
-- Cloudinary account (optional, for image hosting)
+## ✨ Core Features
 
-### Setup
+- **Full-Entity Migration:** Seamlessly migrate **Products, Categories, Customers, Orders, and Addresses**.
+- **Declarative Schema Mapping:** YAML-based configuration for flexible, maintainable field mapping between Magento's EAV model and Medusa's data structure.
+- **Extensible Transformation Pipeline:** Built-in data normalizers for prices, descriptions (HTML cleanup), image URLs, and status codes.
+- **Robust Validation Framework:** Pre-flight and post-flight validation with configurable rules. Invalid records are routed to a **Dead Letter Queue (DLQ)** for analysis and reprocessing.
+- **Production Resilience:** Implements **retry mechanisms with exponential backoff**, rate limiting, pagination handling, and checkpointing for long-running jobs.
+- **Cloud-Native Media Handling:** **Automatic upload of product images** from Magento URLs to Cloudinary (or any S3-compatible service), optimizing and linking them in Medusa.
+- **Delta Synchronization:** Smart sync based on `updated_at` timestamps to process only changed data.
+- **Comprehensive Observability:** Structured logging, performance metrics, and detailed audit trails for every operation.
 
-1. Clone the repository:
-   ```bash
-   git clone <repository-url>
-   cd connectors
-   ```
+## 🏗️ Architecture & Design Philosophy
 
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
+The tool follows a **modular, pipeline-based architecture**, inspired by ETL (Extract, Transform, Load) principles. Each component is loosely coupled, promoting testability and ease of extension.
 
-3. Copy environment template:
-   ```bash
-   cp .env.template .env
-   ```
-
-4. Configure your environment variables in .env:
-   ```bash
-   # Magento Configuration
-   MAGENTO_BASE_URL=https://your-magento-store.com/rest/V1
-   MAGENTO_TOKEN=your_magento_integration_token
-
-   # Medusa Configuration
-   MEDUSA_BASE_URL=https://your-medusa-store.com
-   MEDUSA_API_KEY=your_medusa_api_key
-
-   # Cloudinary (optional)
-   CLOUDINARY_CLOUD_NAME=your_cloud_name
-   CLOUDINARY_API_KEY=your_api_key
-   CLOUDINARY_API_SECRET=your_api_secret
-
-   # Sync Settings
-   SYNC_BATCH_SIZE=50
-   LOG_LEVEL=INFO
-   ```
+```mermaid
+graph LR
+    A[Magento Source] -->|REST API| B(Extract Layer)
+    B --> C[Raw Data]
+    C --> D{Transform & Validate Layer}
+    D -->|Valid| E[Transformed Data]
+    D -->|Invalid| F[DLQ]
+    E --> G(Load Layer)
+    G -->|Medusa API| H[Medusa Target]
+    I[YAML Config] --> D
+    J[Cloudinary] --> G
