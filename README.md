@@ -169,32 +169,34 @@ pip install -r requirements.txt
 Copy the environment template and update it with your system credentials:
 
 ```bash
-cp .env.template .env
+cp .env.example .env
 # Edit .env with your credentials
 nano .env
 ```
 
 .env Configuration
-```bash
+> ⚠️ **Note:** This is a **sample configuration for local development / demo purposes only**.  
+> Do **NOT** commit real credentials to version control.
+
+```ini
 # ===== SOURCE: MAGENTO =====
-MAGENTO_BASE_URL=https://your-magento-store.com/rest/V1
-MAGENTO_ACCESS_TOKEN=your_integration_token_here
+MAGENTO_BASE_URL=https://magento.local/rest/V1
+MAGENTO_TOKEN=magento_integration_token_example_123456
+MAGENTO_ADMIN_USERNAME=admin
+MAGENTO_ADMIN_PASSWORD=admin123
+MAGENTO_TIMEOUT=30
 
 # ===== TARGET: MEDUSA =====
-MEDUSA_BASE_URL=https://your-medusa-admin.com
-MEDUSA_API_KEY=your_medusa_api_key_here
+MEDUSA_BASE_URL=http://localhost:9000
+MEDUSA_API_KEY=medusa_admin_api_key_example_abcdef
+MEDUSA_ADMIN_EMAIL=admin@medusa.local
+MEDUSA_ADMIN_PASSWORD=admin123
+MEDUSA_TIMEOUT=30
 
 # ===== MEDIA HANDLING (Cloudinary) =====
-CLOUDINARY_CLOUD_NAME=your_cloud_name
-CLOUDINARY_API_KEY=your_api_key
-CLOUDINARY_API_SECRET=your_api_secret
-ENABLE_IMAGE_UPLOAD=true
-
-# ===== PIPELINE BEHAVIOR =====
-BATCH_SIZE=50
-MAX_RETRIES=3
-LOG_LEVEL=INFO
-ENABLE_DELTA_SYNC=true
+CLOUDINARY_CLOUD_NAME=demo_cloud
+CLOUDINARY_API_KEY=123456789012345
+CLOUDINARY_API_SECRET=cloudinary_secret_example
 ```
 
 ### 3. Validate Connections
