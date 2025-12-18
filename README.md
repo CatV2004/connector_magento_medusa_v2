@@ -103,41 +103,102 @@ This ensures maximum progress even under imperfect source data conditions.
 
 ```text
 connector_magento_medusa_v2/
-├── connectors/                 # API Abstraction Layer
-│   ├── base_connector.py      # Abstract class with retry & rate-limit handling
-│   ├── magento_connector.py   # Magento 2 REST API client
-│   └── medusa_connector.py    # Medusa Admin API client
+├── .venv/                         # Python virtual environment
 │
-├── core/                      # Business Logic Core
-│   ├── sync_manager.py        # Main orchestration engine (batching, retry, resume)
+├── config/                        # Configuration & Mapping Layer
+│   ├── mapping/
+│   │   ├── defaults/              # Default mapping presets
+│   │   │   ├── __init__.py
+│   │   │   └── medusa_product.yml
+│   │   │
+│   │   ├── __init__.py
+│   │   ├── category_mapping.yaml  # Category field mapping
+│   │   ├── customer_mapping.yaml  # Customer field mapping
+│   │   └── product_mapping.yaml   # Product field mapping
 │   │
-│   ├── transformers/          # Data transformation & normalization
-│   │   ├── base_transformer.py
-│   │   ├── product_transformer.py
-│   │   └── customer_transformer.py
+│   ├── __init__.py
+│   ├── pipeline_config.yaml       # Pipeline behavior configuration
+│   └── settings.py                # Global application settings
+│
+├── connectors/                    # API Abstraction Layer
+│   ├── base/
+│   │   ├── __init__.py
+│   │   ├── base_auth.py            # Shared auth abstractions
+│   │   ├── base_connector.py       # Base connector (retry, timeout)
+│   │   └── http_client.py          # Low-level HTTP client
 │   │
-│   └── validators/            # Data validation & business rules
-│       ├── base_validator.py
-│       └── product_validator.py
+│   ├── magento/
+│   │   ├── __init__.py
+│   │   ├── magento_auth.py         # Magento authentication logic
+│   │   ├── magento_client.py       # Magento REST API client
+│   │   └── magento_connector.py    # Magento data extraction
+│   │
+│   ├── medusa/
+│   │   ├── __init__.py
+│   │   ├── medusa_auth.py          # Medusa authentication logic
+│   │   ├── medusa_client.py        # Medusa Admin API client
+│   │   └── medusa_connector.py     # Medusa data insertion
+│   │
+│   └── __init__.py
 │
-├── mapping_configs/           # Declarative Field Mapping (YAML)
-│   ├── product_mapping.yaml
-│   ├── category_mapping.yaml
-│   └── customer_mapping.yaml
+├── core/                          # Business Logic Core
+│   ├── pipeline/                  # Migration pipeline engine
+│   │   ├── __init__.py
+│   │   ├── async_sync_pipeline.py
+│   │   ├── sync_pipeline.py
+│   │   ├── pipeline.py
+│   │   ├── pipeline_step.py
+│   │   ├── pipeline_status.py
+│   │   └── pipeline_stats.py
+│   │
+│   ├── __init__.py
+│   ├── dlq_handler.py              # Dead Letter Queue handling
+│   ├── mapping_config_loader.py    # Mapping configuration loader
+│   ├── pipeline.py                 # Pipeline orchestration
+│   ├── transformer.py              # Transformation engine
+│   └── validator.py                # Validation engine
 │
-├── data/                      # Runtime Data & Observability
-│   ├── logs/                  # Application & error logs
-│   ├── checkpoint/            # Sync progress checkpoints (resume support)
-│   └── dlq/                   # Dead Letter Queue (invalid / failed records)
+├── dlq/                           # Dead Letter Queue storage
 │
-├── scripts/                   # Deployment & utility scripts
-├── tests/                     # Unit & integration tests
+├── loaders/                       # Config & data loaders
+│   └── yaml_mapping_config_loader.py
 │
-├── cli.py                     # Command Line Interface entrypoint
-├── docker-compose.yml         # Full-stack demo environment (Week 12)
+├── logs/                          # Runtime logs
+│
+├── mappers/                       # Entity-specific mappers
+│   ├── utils/
+│   ├── __init__.py
+│   ├── base_mapper.py              # Base mapper abstraction
+│   ├── category_mapper.py
+│   ├── customer_mapper.py
+│   └── product_mapper.py
+│
+├── services/                      # High-level sync services
+│   ├── __init__.py
+│   ├── category_sync_service.py
+│   ├── customer_sync_service.py
+│   └── product_sync_service.py
+│
+├── utils/                         # Shared cross-cutting utilities
+│   ├── helpers/                   # Common helper functions
+│   │   ├── __init__.py
+│   │   └── data_utils.py           # Data formatting, safe access, etc.
+│   │
+│   ├── logger/                    # Centralized logging
+│   │   ├── __init__.py
+│   │   └── logger.py               # Structured logger configuration
+│   │
+│   ├── retry/                     # Retry & backoff logic
+│   │   ├── __init__.py
+│   │   └── retry.py                # Retry decorator / policy
+│   │
+│   └── __init__.py
+│
+├── .env.example                   # Environment variables template
+├── docker-compose.yml             # Full-stack demo environment
 ├── requirements.txt
-├── .env.template
-└── README.md                  # Project documentation
+├── cli.py                         # CLI entrypoint
+└── README.md                      # Project documentation
 ```
 
 
