@@ -50,7 +50,7 @@ graph LR
     G -->|Medusa API| H[Medusa Target]
     I[YAML Config] --> D
     J[Cloudinary] --> G
-
+```
 ## Key Design Decisions
 
 ### 1. Idempotency
