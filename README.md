@@ -180,18 +180,9 @@ connector_magento_medusa_v2/
 │   └── product_sync_service.py
 │
 ├── utils/                         # Shared cross-cutting utilities
-│   ├── helpers/                   # Common helper functions
-│   │   ├── __init__.py
-│   │   └── data_utils.py           # Data formatting, safe access, etc.
-│   │
-│   ├── logger/                    # Centralized logging
-│   │   ├── __init__.py
-│   │   └── logger.py               # Structured logger configuration
-│   │
-│   ├── retry/                     # Retry & backoff logic
-│   │   ├── __init__.py
-│   │   └── retry.py                # Retry decorator / policy
-│   │
+│   ├── helpers.py            
+│   ├── logger.py                    
+│   ├── retry.py            
 │   └── __init__.py
 │
 ├── .env.example                   # Environment variables template
