@@ -4,27 +4,28 @@ from core.transformer import Transformer
 from core.validator import Validator
 from utils.logger import logger
 import re
+from datetime import datetime
+import pycountry
 
 
 class CustomerMapper(BaseMapper):
     """Mapper for Magento to Medusa customer conversion"""
     
-    def __init__(self, source_connector=None, target_connector=None):
-        super().__init__('customer_mapping.yaml', source_connector, target_connector)
+    def __init__(
+        self, 
+        mapping_config: Dict[str, Any],
+        source_connector=None, 
+        target_connector=None 
+    ):
+        super().__init__(
+            mapping_config=mapping_config, 
+            source_connector=source_connector,
+            target_connector=target_connector
+        )
         self.transformer = Transformer()
         self.validator = Validator()
         
     def map(self, source_data: Dict[str, Any], context: Optional[Dict] = None) -> Dict[str, Any]:
-        """
-        Map Magento customer to Medusa format
-        
-        Args:
-            source_data: Magento customer data
-            context: Additional context
-            
-        Returns:
-            Dict: Medusa formatted customer
-        """
         if context is None:
             context = {}
             
@@ -35,60 +36,209 @@ class CustomerMapper(BaseMapper):
             "shipping_address": {}
         }
         
-        # Map basic fields
-        self._map_basic_fields(result, source_data)
-        
-        # Map addresses
-        self._map_addresses(result, source_data)
-        
-        # Map custom attributes
-        self._map_custom_attributes(result, source_data)
-        
-        # Add metadata
-        result = self._add_metadata(result, source_data, context)
-        
+        try:
+            # Map basic fields using config
+            self._map_fields_with_config(result, source_data)
+            
+            # Map addresses
+            self._map_addresses_with_config(result, source_data)
+            
+            # Map custom attributes
+            self._map_custom_attributes(result, source_data)
+            
+            # Add metadata
+            result = self._add_metadata(result, source_data, context)
+            
+            # Apply custom transformations
+            result = self._apply_custom_transformations(result, source_data)
+            
+        except Exception as e:
+            logger.error(f"Error mapping customer: {e}")
+            raise
+            
         return result
     
-    def _map_basic_fields(self, result: Dict, source_data: Dict):
-        """Map basic customer fields"""
-        # Email
-        email = source_data.get('email', '')
-        if email:
-            result['email'] = email.lower().strip()
-            result['has_account'] = True
+    def _map_fields_with_config(self, result: Dict, source_data: Dict):
+        """Map fields using YAML configuration"""
+        fields_config = self.config.get('fields', {})
         
-        # Name
-        firstname = source_data.get('firstname', '')
-        lastname = source_data.get('lastname', '')
-        
-        if firstname or lastname:
-            result['first_name'] = firstname.strip()
-            result['last_name'] = lastname.strip()
-            result['full_name'] = f"{firstname} {lastname}".strip()
-        
-        # Company
-        company = source_data.get('company', '')
-        if company:
-            result['company_name'] = company.strip()
-        
-        # Phone
-        telephone = source_data.get('telephone', '') or source_data.get('phone', '')
-        if telephone:
-            result['phone'] = self._clean_phone(telephone)
-        
-        # Dates
-        created_at = source_data.get('created_at')
-        if created_at:
-            result['created_at'] = created_at
-        
-        updated_at = source_data.get('updated_at')
-        if updated_at:
-            result['updated_at'] = updated_at
-        
-        # Status
-        is_active = source_data.get('is_active', True)
-        result['has_account'] = bool(is_active)
+        for source_field, field_config in fields_config.items():
+            if not isinstance(field_config, dict):
+                continue
+                
+            # Skip custom attributes field (handled separately)
+            if source_field == 'custom_attributes':
+                continue
+                
+            target_field = field_config.get('target')
+            if target_field is None:
+                continue
+                
+            # Get source value from multiple possible paths
+            source_value = self._get_source_value(source_data, source_field, field_config)
+            
+            # Apply transformation if specified
+            transform = field_config.get('transform')
+            if transform and source_value is not None:
+                transformed_value = self.transformer.transform(source_value, transform)
+            else:
+                transformed_value = source_value
+                
+            # Set default value if empty
+            if transformed_value is None and 'default' in field_config:
+                transformed_value = field_config['default']
+                
+            # Set value if not None
+            if transformed_value is not None:
+                self._set_nested_value(result, target_field, transformed_value)
     
+    def _get_source_value(self, source_data: Dict, source_field: str, field_config: Dict) -> Any:
+        """Get value from source data, checking multiple possible paths"""
+        # Check for source_paths first
+        source_paths = field_config.get('source_paths', [])
+        if source_paths:
+            for path in source_paths:
+                value = self._get_nested_value(source_data, path)
+                if value is not None and value != '':
+                    return value
+        
+        # Check for single source_path
+        source_path = field_config.get('source_path', source_field)
+        return self._get_nested_value(source_data, source_path)
+    
+    def _map_addresses_with_config(self, result: Dict, source_data: Dict):
+        """Map customer addresses using configuration"""
+        addresses = source_data.get('addresses', [])
+        
+        if not addresses:
+            return
+            
+        # Get address configuration
+        address_fields_config = self.config.get('address_fields', {})
+        address_rules_config = self.config.get('address_rules', {})
+        
+        # Process shipping address
+        shipping_address = self._select_address_by_priority(
+            addresses, 
+            address_rules_config.get('shipping', {}).get('priority', [])
+        )
+        
+        if shipping_address:
+            result['shipping_address'] = self._map_single_address(
+                shipping_address, 
+                address_fields_config
+            )
+        
+        # Process billing address
+        billing_address = self._select_address_by_priority(
+            addresses,
+            address_rules_config.get('billing', {}).get('priority', [])
+        )
+        
+        if billing_address:
+            result['billing_address'] = self._map_single_address(
+                billing_address,
+                address_fields_config
+            )
+        
+        # Fallback: if no addresses found, use first address for both
+        if not result.get('shipping_address') and not result.get('billing_address') and addresses:
+            first_address = addresses[0]
+            mapped_address = self._map_single_address(first_address, address_fields_config)
+            result['shipping_address'] = mapped_address
+            result['billing_address'] = mapped_address
+        elif not result.get('shipping_address') and result.get('billing_address'):
+            result['shipping_address'] = result['billing_address']
+        elif not result.get('billing_address') and result.get('shipping_address'):
+            result['billing_address'] = result['shipping_address']
+    
+    def _select_address_by_priority(self, addresses: List[Dict], priority_rules: List[str]) -> Optional[Dict]:
+        """Select address based on priority rules"""
+        if not addresses or not priority_rules:
+            return None
+            
+        for rule in priority_rules:
+            for address in addresses:
+                if rule == 'first_address':
+                    return address
+                elif rule == 'is_default_shipping' and address.get('is_default_shipping'):
+                    return address
+                elif rule == 'is_default_billing' and address.get('is_default_billing'):
+                    return address
+                    
+        return addresses[0] if addresses else None
+    
+    def _map_single_address(self, address: Dict, address_fields_config: Dict) -> Dict:
+        """Map single address using configuration"""
+        result = {}
+        
+        for address_field, field_config in address_fields_config.items():
+            if not isinstance(field_config, dict):
+                continue
+                
+            # Get target field(s)
+            target_fields = field_config.get('target')
+            if isinstance(target_fields, str):
+                target_fields = [target_fields]
+            elif not isinstance(target_fields, list):
+                continue
+                
+            # Get source value
+            source_path = field_config.get('source_path', address_field)
+            source_value = self._get_nested_value(address, source_path)
+            
+            # Apply transformation
+            transform = field_config.get('transform')
+            if transform and source_value is not None:
+                transformed_value = self.transformer.transform(source_value, transform)
+            else:
+                transformed_value = source_value
+                
+            # Handle array values (like street splitting)
+            if isinstance(transformed_value, list) and len(target_fields) == len(transformed_value):
+                for i, target_field in enumerate(target_fields):
+                    self._set_nested_value(result, target_field, transformed_value[i])
+            elif transformed_value is not None:
+                for target_field in target_fields:
+                    self._set_nested_value(result, target_field, transformed_value)
+                    
+        return result
+    
+    def _map_custom_attributes(self, result: Dict, source_data: Dict):
+        """Map custom attributes to metadata"""
+        custom_attrs = source_data.get('custom_attributes', [])
+        
+        for attr in custom_attrs:
+            attr_code = attr.get('attribute_code')
+            attr_value = attr.get('value')
+            
+            if attr_code and attr_value is not None:
+                # Map common attributes to specific fields
+                if attr_code == 'gender':
+                    result['metadata']['gender'] = attr_value
+                elif attr_code == 'dob':
+                    result['date_of_birth'] = attr_value
+                elif attr_code == 'taxvat':
+                    result['tax_number'] = attr_value
+                else:
+                    # Map to metadata with prefix
+                    metadata_key = f"magento_{attr_code}"
+                    result['metadata'][metadata_key] = attr_value
+    
+    def _apply_custom_transformations(self, result: Dict, source_data: Dict) -> Dict:
+        """Apply custom transformations defined in config"""
+        transformations_config = self.config.get('transformations', {})
+        
+        for trans_name, trans_rule in transformations_config.items():
+            if trans_name == 'concat' and 'full_name' not in result:
+                firstname = source_data.get('firstname', '')
+                lastname = source_data.get('lastname', '')
+                if firstname or lastname:
+                    result['full_name'] = f"{firstname} {lastname}".strip()
+                    
+        return result
+    
+    # Helper methods (keep from original)
     def _clean_phone(self, phone: str) -> str:
         """Clean phone number"""
         if not phone:
@@ -107,76 +257,24 @@ class CustomerMapper(BaseMapper):
         
         return cleaned
     
-    def _map_addresses(self, result: Dict, source_data: Dict):
-        """Map customer addresses"""
-        addresses = source_data.get('addresses', [])
-        
-        for address in addresses:
-            address_type = 'shipping' if address.get('is_default_shipping') else 'billing'
-            
-            address_data = self._map_single_address(address)
-            
-            if address_type == 'shipping':
-                result['shipping_address'] = address_data
-            elif address_type == 'billing':
-                result['billing_address'] = address_data
-            
-            # If no default specified, use first address
-            if not result.get('shipping_address') and address_type != 'billing':
-                result['shipping_address'] = address_data
-            if not result.get('billing_address') and address_type != 'shipping':
-                result['billing_address'] = address_data
-    
-    def _map_single_address(self, address: Dict) -> Dict:
-        """Map single address"""
-        return {
-            'first_name': address.get('firstname', ''),
-            'last_name': address.get('lastname', ''),
-            'address_1': address.get('street', [''])[0],
-            'address_2': address.get('street', ['', ''])[1] if len(address.get('street', [])) > 1 else '',
-            'city': address.get('city', ''),
-            'postal_code': address.get('postcode', ''),
-            'province': address.get('region', {}).get('region', ''),
-            'country_code': self._map_country_code(address.get('country_id', '')),
-            'phone': address.get('telephone', ''),
-            'company': address.get('company', '')
-        }
-    
     def _map_country_code(self, magento_country_id: str) -> str:
-        """Map Magento country ID to ISO country code"""
-        country_map = {
-            'US': 'us',
-            'GB': 'gb',
-            'CA': 'ca',
-            'AU': 'au',
-            'DE': 'de',
-            'FR': 'fr',
-            'IT': 'it',
-            'ES': 'es',
-            'JP': 'jp',
-            'CN': 'cn',
-            'IN': 'in',
-            'BR': 'br',
-            'MX': 'mx',
-        }
+        if not magento_country_id:
+            return None
         
-        return country_map.get(magento_country_id.upper(), magento_country_id.lower())
-    
-    def _map_custom_attributes(self, result: Dict, source_data: Dict):
-        """Map custom attributes to metadata"""
-        custom_attrs = source_data.get('custom_attributes', [])
+        # country_map = {
+        #     'US': 'us', 'GB': 'gb', 'CA': 'ca', 'AU': 'au',
+        #     'DE': 'de', 'FR': 'fr', 'IT': 'it', 'ES': 'es',
+        #     'JP': 'jp', 'CN': 'cn', 'IN': 'in', 'BR': 'br',
+        #     'MX': 'mx',
+        # }
         
-        for attr in custom_attrs:
-            attr_code = attr.get('attribute_code')
-            attr_value = attr.get('value')
-            
-            if attr_code and attr_value is not None:
-                metadata_key = f"magento_{attr_code}"
-                result['metadata'][metadata_key] = attr_value
+        country = pycountry.countries.get(alpha_2=magento_country_id.upper())
+        return country.alpha_2.lower() if country else magento_country_id.lower()
     
     def _add_metadata(self, result: Dict, source_data: Dict, context: Dict) -> Dict:
         """Add additional metadata"""
-        result['metadata']['source_system'] = self.source_system
+        # Add source system info
+        result['metadata']['source_system'] = self.config.get('source', 'magento')
         result['metadata']['source_id'] = source_data.get('id')
         
         # Add group/customer segment if available
@@ -190,9 +288,42 @@ class CustomerMapper(BaseMapper):
             result['metadata']['store_id'] = store_id
         
         # Add sync info
-        result['metadata']['sync_timestamp'] = context.get('sync_timestamp')
+        result['metadata']['sync_timestamp'] = context.get('sync_timestamp', datetime.now().isoformat())
         
         return result
+    
+    def _get_nested_value(self, data: Dict, path: str, default: Any = None) -> Any:
+        """Get value from nested dictionary using dot notation"""
+        if not path:
+            return default
+            
+        keys = path.split('.')
+        value = data
+        
+        for key in keys:
+            if isinstance(value, dict):
+                value = value.get(key, default)
+                if value is default:
+                    break
+            else:
+                return default
+                
+        return value
+    
+    def _set_nested_value(self, data: Dict, path: str, value: Any):
+        """Set value in nested dictionary using dot notation"""
+        if not path:
+            return
+            
+        keys = path.split('.')
+        current = data
+        
+        for i, key in enumerate(keys[:-1]):
+            if key not in current:
+                current[key] = {}
+            current = current[key]
+            
+        current[keys[-1]] = value
     
     def validate_customer(self, customer_data: Dict) -> Dict[str, List[str]]:
         """Validate customer data"""
@@ -201,8 +332,8 @@ class CustomerMapper(BaseMapper):
             "invalid_format": []
         }
         
-        # Check required fields
-        required_fields = ['email', 'firstname', 'lastname']
+        # Check required fields from config
+        required_fields = self.config.get('validation', {}).get('required_fields', ['email', 'firstname', 'lastname'])
         for field in required_fields:
             if field not in customer_data or not customer_data[field]:
                 errors["missing_required"].append(field)

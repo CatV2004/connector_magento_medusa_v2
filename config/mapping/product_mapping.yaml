@@ -7,7 +7,7 @@ entity: "product"
 fields:
   # Basic product information
   sku:
-    target: "sku"
+    target: null
     required: true
     type: "string"
     transform: "clean_sku"
@@ -19,7 +19,7 @@ fields:
     transform: "strip"
     
   type_id:
-    target: "type"
+    target: null
     required: true
     type: "string"
     default: "simple"
@@ -51,7 +51,7 @@ fields:
     
   # Pricing
   price:
-    target: "variants[0].prices[0].amount"
+    target: null
     required: false
     type: "float"
     transform: "normalize_price"
@@ -70,13 +70,13 @@ fields:
     
   # Inventory
   quantity:
-    target: "variants[0].inventory_quantity"
+    target: null
     required: false
     type: "integer"
     default: 0
     
   is_in_stock:
-    target: "variants[0].manage_inventory"
+    target: null
     required: false
     type: "boolean"
     transform: "map_inventory"
@@ -117,7 +117,7 @@ fields:
     
   # Weight & Dimensions
   weight:
-    target: "variants[0].weight"
+    target: null
     required: false
     type: "float"
     
@@ -138,12 +138,12 @@ fields:
     
   # Dates
   created_at:
-    target: "created_at"
+    target: null
     required: false
     type: "datetime"
     
   updated_at:
-    target: "updated_at"
+    target: null
     required: false
     type: "datetime"
     
@@ -158,20 +158,20 @@ type_mappings:
   simple:
     fields:
       price:
-        target: "variants[0].prices[0].amount"
+        target: null
       quantity:
-        target: "variants[0].inventory_quantity"
+        target: null
         
   configurable:
     fields:
       price:
-        target: "variants[0].prices[0].amount"  # Will use child product price
+        target: null
       has_variants: true
       
   bundle:
     fields:
       price:
-        target: "variants[0].prices[0].amount"
+        target: null
       is_bundle: true
       
   grouped:
@@ -181,26 +181,19 @@ type_mappings:
 # Variant mappings
 variant_fields:
   sku:
-    target: "sku"
-    required: true
-    
+    target: null
+
   price:
-    target: "prices[0].amount"
-    required: true
-    transform: "normalize_price"
-    
+    target: null
+
   quantity:
-    target: "inventory_quantity"
-    required: false
-    
+    target: null
+
   weight:
-    target: "weight"
-    required: false
-    
+    target: null
+
   manage_inventory:
-    target: "manage_inventory"
-    required: false
-    default: true
+    target: null
 
 # Custom transformations
 transformations:

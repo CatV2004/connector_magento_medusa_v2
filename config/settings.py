@@ -3,7 +3,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 # Load environment variables
-env_path = Path(__file__).parent.parent.parent / '.env'
+env_path = Path(__file__).resolve().parent.parent / '.env'
 load_dotenv(env_path)
 
 
@@ -23,7 +23,9 @@ class MagentoSettings:
     ADMIN_PASSWORD = get_env('MAGENTO_ADMIN_PASSWORD', '')
     VERIFY_SSL = get_env('MAGENTO_VERIFY_SSL', 'false').lower() == 'true'
     TIMEOUT = int(get_env('MAGENTO_TIMEOUT', '30'))
-    
+    MAGENTO_MEDIA_ROOT = Path(
+            "D:/internship/connector_magento_medusa_v2/media/catalog"
+        )    
     # API endpoints
     ENDPOINTS = {
         'products': 'products',

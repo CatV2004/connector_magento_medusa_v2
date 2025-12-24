@@ -4,8 +4,9 @@ from mappers.category_mapper import CategoryMapper
 from core.dlq_handler import DLQHandler
 from connectors.magento.magento_connector import MagentoConnector
 from connectors.medusa.medusa_connector import MedusaConnector
-import datetime
-
+from datetime import datetime
+from core.mapping.mapping_factory import MappingFactory
+from pathlib import Path
 
 class CategorySyncService:
     """Service for syncing categories from Magento to Medusa"""
@@ -13,7 +14,19 @@ class CategorySyncService:
     def __init__(self, magento: MagentoConnector, medusa: MedusaConnector):
         self.magento = magento
         self.medusa = medusa
-        self.mapper = CategoryMapper(magento, medusa)
+        logger.info("Initializing CategorySyncService")
+        print("Initializing CategorySyncService")
+
+        mapping = MappingFactory(
+            Path("config/mapping")
+        ).get("category")
+        logger.debug(f"Category mapping config: {mapping}") 
+
+        self.mapper = CategoryMapper(
+            mapping_config=mapping,
+            source_connector=magento,
+            target_connector=medusa
+        )
         self.dlq = DLQHandler('categories')
         self.sync_stats = {
             'total_processed': 0,
@@ -23,15 +36,6 @@ class CategorySyncService:
         }
         
     def sync_all(self, root_category_id: int = 2) -> Dict:
-        """
-        Sync all categories from Magento to Medusa
-        
-        Args:
-            root_category_id: Magento root category ID (default: 2 - Default Category)
-            
-        Returns:
-            Dict: Sync statistics and ID mapping
-        """
         logger.info("Starting category sync from Magento to Medusa...")
         
         try:
@@ -68,15 +72,9 @@ class CategorySyncService:
             self.existing_by_handle = {}
             
     def _sync_category_tree(self, parent_id: int, level: int = 0):
-        """
-        Recursively sync category tree
-        
-        Args:
-            parent_id: Magento parent category ID
-            level: Current depth level (for logging)
-        """
         try:
             # Get child categories from Magento
+            logger.info(f"Fetching categories under parent ID {parent_id}")
             magento_categories = self.magento.get_categories_by_parent(parent_id)
             
             if not magento_categories:
@@ -103,15 +101,10 @@ class CategorySyncService:
             raise
             
     def _sync_single_category(self, mag_category: Dict, level: int = 0):
-        """
-        Sync a single category
-        
-        Args:
-            mag_category: Magento category data
-            level: Indentation level for logging
-        """
+        logger.info(f"Syncing category {mag_category}")
         magento_id = str(mag_category['id'])
         category_name = mag_category.get('name', 'Unnamed Category')
+        logger.info(f"Syncing category: {category_name} (ID: {magento_id})")
         
         # Skip root categories
         if mag_category['id'] in (1, 2):
@@ -169,15 +162,51 @@ class CategorySyncService:
                 'timestamp': datetime.now().isoformat()
             })
             
-    def _find_existing_category(self, mag_category: Dict) -> Optional[Dict]:
-        """Find existing category in Medusa by name or handle"""
-        category_name = mag_category.get('name')
+    # def _find_existing_category(self, mag_category: Dict) -> Optional[Dict]:
+    #     """Find existing category in Medusa by name or handle"""
+    #     category_name = mag_category.get('name')
         
-        # Try to find by name
+    #     # Try to find by name
+    #     if category_name and category_name in self.existing_by_name:
+    #         return self.existing_by_name[category_name]
+            
+    #     # Try to find by handle
+    #     url_key = mag_category.get('url_key')
+    #     if url_key:
+    #         handle = self.mapper.transformer.slugify(url_key)
+    #         if handle in self.existing_by_handle:
+    #             return self.existing_by_handle[handle]
+                
+    #     return None
+    def _find_existing_category(self, mag_category: Dict) -> Optional[Dict]:
+        category_name = mag_category.get('name')
+        magento_id = str(mag_category.get('id'))
+        
+        if magento_id in self.mapper.get_id_mapping():
+            medusa_id = self.mapper.get_id_mapping()[magento_id]
+            for cat in self.existing_by_name.values():
+                if cat.get('id') == medusa_id:
+                    return cat
+        
+        parent_id = mag_category.get('parent_id')
+        if category_name and parent_id:
+            # Map Magento parent_id to Medusa parent_id
+            medusa_parent_id = self.mapper.get_id_mapping().get(str(parent_id))
+            
+            for cat in self.existing_by_name.values():
+                # Check name match
+                if cat.get('name') == category_name:
+                    # Check parent match
+                    cat_parent_id = cat.get('parent_category_id')
+                    if (medusa_parent_id and cat_parent_id and 
+                        str(cat_parent_id) == str(medusa_parent_id)):
+                        return cat
+                    elif not medusa_parent_id and not cat_parent_id:
+                        return cat
+        
         if category_name and category_name in self.existing_by_name:
             return self.existing_by_name[category_name]
             
-        # Try to find by handle
         url_key = mag_category.get('url_key')
         if url_key:
             handle = self.mapper.transformer.slugify(url_key)
@@ -196,6 +225,7 @@ class CategorySyncService:
         
         # Map Magento data to Medusa format
         medusa_data = self.mapper.map(mag_category, context)
+        logger.info(f"Mapped Medusa data: {medusa_data}")
         
         # Create in Medusa
         response = self.medusa.create_category(medusa_data)
@@ -204,10 +234,16 @@ class CategorySyncService:
             new_category = response['product_category']
             category_id = new_category['id']
             category_name = new_category['name']
+            category_handle = new_category.get('handle', '')
             
             # Update local cache
             self.existing_by_name[category_name] = new_category
-            self.existing_by_handle[new_category.get('handle', '')] = new_category
+            if category_handle:
+                self.existing_by_handle[category_handle] = new_category 
+            
+            if not hasattr(self, 'existing_by_id'):
+                self.existing_by_id = {}
+            self.existing_by_id[category_id] = new_category
             
             return category_id
         else:

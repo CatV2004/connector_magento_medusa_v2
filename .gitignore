@@ -217,6 +217,7 @@ __marimo__/
 *.swp
 *.swo
 
+
 # Logs directory
 logs/
 
@@ -241,3 +242,13 @@ sync_report_*.json
 # OS files
 .DS_Store
 Thumbs.db
+
+#utils files
+*.json
+*.csv
+
+#utils folders
+dlq/
+logs/
+exports/
+backups/

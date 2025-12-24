@@ -8,26 +8,30 @@ from utils.logger import logger
 class CategoryMapper(BaseMapper):
     """Mapper for Magento to Medusa category conversion"""
     
-    def __init__(self, source_connector=None, target_connector=None):
-        super().__init__('category_mapping.yaml', source_connector, target_connector)
+    def __init__(
+        self, 
+        mapping_config: Dict[str, Any],
+        source_connector=None, 
+        target_connector=None
+    ):
+        super().__init__(
+            mapping_config=mapping_config, 
+            source_connector=source_connector,
+            target_connector=target_connector
+        )
         self.transformer = Transformer()
         self.validator = Validator()
         self.id_mapping = {}  # Magento ID -> Medusa ID
         
     def map(self, source_data: Dict[str, Any], context: Optional[Dict] = None) -> Dict[str, Any]:
-        """
-        Map Magento category to Medusa format
-        
-        Args:
-            source_data: Magento category data
-            context: Additional context (e.g., parent mapping, store info)
-            
-        Returns:
-            Dict: Medusa formatted category
-        """
         # Set default context
         if context is None:
             context = {}
+        
+        if not isinstance(source_data, dict):
+            raise TypeError(
+                f"source_data must be dict, got {type(source_data)}"
+            )
             
         # Update context with ID mapping if available
         if 'id_mapping' not in context:
@@ -120,31 +124,54 @@ class CategoryMapper(BaseMapper):
         # Parent not yet mapped - this will be handled in sync service
         return None
     
-    def _apply_custom_transformations(self, result: Dict, 
-                                     source_data: Dict, context: Dict):
-        """Apply custom transformations defined in mapping config"""
+    def _apply_custom_transformations(self, result: Dict, source_data: Dict, context: Dict):
         custom_transforms = self.mapping_config.get('transformations', {})
-        
-        for target_field, rule in custom_transforms.items():
-            if rule.startswith('if_empty('):
-                # Example: if_empty(slugify(name))
-                func_call = rule[9:-1]  # Remove if_empty()
-                if target_field not in result or not result[target_field]:
-                    # Extract function name (e.g., 'slugify(name)')
-                    if '(' in func_call:
-                        func_name = func_call.split('(')[0]
-                        arg = func_call.split('(')[1][:-1]  # Remove closing )
-                        value = source_data.get(arg, '')
-                        result[target_field] = getattr(self.transformer, func_name)(value)
-            elif rule.startswith('not('):
-                # Example: not(include_in_menu)
-                arg = rule[4:-1]  # Remove not()
-                value = source_data.get(arg, False)
-                result[target_field] = not bool(value)
-            elif rule.startswith('if('):
-                # Example: if(parent_id > 2, map_id(parent_id), null)
-                # This is simplified - in real implementation would parse properly
-                pass
+
+        for target_field, rule_obj in custom_transforms.items():
+            # rule_obj có thể là dict hoặc trực tiếp string
+            rule = None
+            if isinstance(rule_obj, dict):
+                rule = rule_obj.get('rule')
+            elif isinstance(rule_obj, str):
+                rule = rule_obj
+
+            if not isinstance(rule, str):
+                logger.warning(f"Invalid custom transform for {target_field}: {rule_obj}")
+                continue  # skip invalid rule
+
+            try:
+                # Handle if_empty
+                if rule.startswith('if_empty(') and (target_field not in result or not result[target_field]):
+                    func_call = rule[len('if_empty('):-1]  # remove wrapper
+                    if '(' in func_call and func_call.endswith(')'):
+                        func_name, arg_name = func_call.split('(')
+                        arg_name = arg_name[:-1]  # remove closing ')'
+                        arg_value = source_data.get(arg_name, '')
+                        if hasattr(self.transformer, func_name):
+                            result[target_field] = getattr(self.transformer, func_name)(arg_value)
+                        else:
+                            logger.warning(f"Transformer has no method '{func_name}'")
+                    else:
+                        logger.warning(f"Invalid if_empty syntax for {target_field}: {rule}")
+
+                # Handle not(...)
+                elif rule.startswith('not(') and rule.endswith(')'):
+                    arg_name = rule[len('not('):-1]
+                    arg_value = source_data.get(arg_name, False)
+                    result[target_field] = not bool(arg_value)
+
+                # Handle if(...) - simplified
+                elif rule.startswith('if(') and rule.endswith(')'):
+                    # parse simple "if(condition, true_val, false_val)"
+                    # You can implement a safe eval or custom parser here
+                    pass
+
+                # else: unknown rule
+                else:
+                    logger.warning(f"Unknown transformation rule for {target_field}: {rule}")
+
+            except Exception as e:
+                logger.error(f"Custom transformation failed for {target_field} with rule {rule}: {e}")
     
     def _set_nested_value(self, obj: Dict, path: str, value: Any):
         """Set value for nested field path (e.g., 'metadata.position')"""

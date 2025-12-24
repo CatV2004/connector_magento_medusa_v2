@@ -6,7 +6,9 @@ from mappers.customer_mapper import CustomerMapper
 from core.dlq_handler import DLQHandler
 from connectors.magento.magento_connector import MagentoConnector
 from connectors.medusa.medusa_connector import MedusaConnector
-
+from core.mapping.mapping_factory import MappingFactory
+from pathlib import Path
+from services.password_reset_service import PasswordResetService
 
 class CustomerSyncService:
     """Service for syncing customers from Magento to Medusa"""
@@ -14,7 +16,15 @@ class CustomerSyncService:
     def __init__(self, magento: MagentoConnector, medusa: MedusaConnector):
         self.magento = magento
         self.medusa = medusa
-        self.mapper = CustomerMapper(magento, medusa)
+        mapping = MappingFactory(
+            Path("config/mapping")
+        ).get("customer")
+
+        self.mapper = CustomerMapper(
+            mapping_config=mapping,
+            source_connector=magento,
+            target_connector=medusa
+        )
         self.dlq = DLQHandler('customers')
         
         self.sync_stats = {
@@ -26,6 +36,8 @@ class CustomerSyncService:
             'new_customers': 0,
             'updated_customers': 0
         }
+        self.password_reset_service = PasswordResetService(medusa)
+        self.pending_password_resets = []
         
         # Cache for existing customers
         self.existing_customers: Dict[str, str] = {}  # Email -> Medusa ID

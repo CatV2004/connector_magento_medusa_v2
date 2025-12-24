@@ -4,29 +4,37 @@ from core.transformer import Transformer
 from core.validator import Validator
 from utils.logger import logger
 from mappers.utils.text_utils import html_to_text
-import re
+import re, json
 
 
 class ProductMapper(BaseMapper):
     """Mapper for Magento to Medusa product conversion"""
     
-    def __init__(self, source_connector=None, target_connector=None):
-        super().__init__('product_mapping.yaml', source_connector, target_connector)
+    def __init__(
+        self, 
+        mapping_config: Dict[str, Any],
+        source_connector=None, 
+        target_connector=None
+    ):
+        super().__init__(
+            mapping_config=mapping_config,
+            source_connector=source_connector,
+            target_connector=target_connector
+        )
         self.transformer = Transformer()
         self.validator = Validator()
         self.value_maps: Dict[str, Dict[str, str]] = {}
+
+    def get_fallback_options(self) -> Dict[str, Any]:
+        cfg = self.mapping_config
+        return (
+            cfg
+            .get("defaults", {})
+            .get("options", {})
+            .get("fallback", {})
+        )
         
     def map(self, source_data: Dict[str, Any], context: Optional[Dict] = None) -> Dict[str, Any]:
-        """
-        Map Magento product to Medusa format
-        
-        Args:
-            source_data: Magento product data
-            context: Additional context (e.g., category mapping, child products)
-            
-        Returns:
-            Dict: Medusa formatted product
-        """
         if context is None:
             context = {}
             
@@ -35,14 +43,13 @@ class ProductMapper(BaseMapper):
         
         # Initialize result
         result = {
-            "type": "product",
             "status": "draft",
             "metadata": {},
             "images": [],
             "tags": [],
-            "collection": None
+            # "collection_id": "col_xxx"
         }
-        
+                
         # Process basic fields
         self._map_basic_fields(result, source_data, context)
         
@@ -57,6 +64,9 @@ class ProductMapper(BaseMapper):
         
         # Process product type specific data
         self._process_product_type(result, source_data, context)
+        
+        # Apply option fallback
+        self._apply_option_fallback(result)
         
         # Apply custom transformations
         self._apply_custom_transformations(result, source_data, context)
@@ -94,11 +104,46 @@ class ProductMapper(BaseMapper):
                 
             # Set value (handle nested paths and arrays)
             self._set_field_value(result, target_field, transformed_value)
+            
+        self._map_special_fields(result, source_data)
+        
+    def _map_special_fields(self, result: Dict, source_data: Dict):
+        description = None
+        
+        if 'custom_attributes' in source_data:
+            for attr in source_data['custom_attributes']:
+                if attr.get('attribute_code') == 'description':
+                    description = attr.get('value')
+                    break
+        
+        if not description:
+            description = source_data.get('description')
+        
+        if description:
+            clean_description = self.transformer.html_to_text(description)
+            # clean_description = self.transformer.clean_html(description)
+            
+            result['description'] = clean_description
+        
+        # Map short_description/subtitle
+        short_description = None
+        
+        if 'custom_attributes' in source_data:
+            for attr in source_data['custom_attributes']:
+                if attr.get('attribute_code') == 'short_description':
+                    short_description = attr.get('value')
+                    break
+        
+        if not short_description:
+            short_description = source_data.get('short_description')
+        
+        if short_description:
+            clean_short_desc = self.transformer.html_to_text(short_description)
+            result['subtitle'] = clean_short_desc
     
     def _apply_field_transformation(self, value: Any, transform: str, 
                                    field_name: str, source_data: Dict, 
                                    context: Dict) -> Any:
-        """Apply field-specific transformation"""
         try:
             if transform == 'clean_sku':
                 return self.transformer.clean_sku(value)
@@ -106,6 +151,8 @@ class ProductMapper(BaseMapper):
                 return self.transformer.strip(value)
             elif transform == 'html_to_text':
                 return html_to_text(value)
+            elif transform == 'clean_html':
+                return self.transformer.clean_html(value)
             elif transform == 'slugify':
                 return self.transformer.slugify(value)
             elif transform == 'normalize_price':
@@ -188,23 +235,45 @@ class ProductMapper(BaseMapper):
         """Map custom attributes to metadata"""
         custom_attrs = source_data.get('custom_attributes', [])
         
+        option_values_by_type = {}
+        
+        special_attributes = ['description', 'short_description', 'meta_title', 'meta_keywords', 'meta_description']
+        
         for attr in custom_attrs:
             attr_code = attr.get('attribute_code')
             attr_value = attr.get('value')
             
             if attr_code and attr_value is not None:
-                # Map known attributes to specific fields
+                if attr_code in special_attributes:
+                    continue    
                 if attr_code in ['color', 'size', 'material', 'brand']:
-                    # These become product options or metadata
                     if 'metadata' not in result:
                         result['metadata'] = {}
                     result['metadata'][attr_code] = attr_value
+                    
+                    if attr_code not in option_values_by_type:
+                        option_values_by_type[attr_code] = []
+                    
+                    value_str = str(attr_value)
+                    if value_str not in option_values_by_type[attr_code]:
+                        option_values_by_type[attr_code].append(value_str)
                 else:
-                    # Store in metadata with prefix
                     metadata_key = f"magento_{attr_code}"
                     if 'metadata' not in result:
                         result['metadata'] = {}
                     result['metadata'][metadata_key] = attr_value
+        
+        if option_values_by_type:
+            options = []
+            for attr_code, values in option_values_by_type.items():
+                if values:  
+                    options.append({
+                        'title': attr_code.capitalize(),
+                        'values': values
+                    })
+            
+            if options:
+                result['options'] = options
     
     def _map_images(self, result: Dict, source_data: Dict):
         """Map product images"""
@@ -274,22 +343,90 @@ class ProductMapper(BaseMapper):
             # Simple product
             self._process_simple_product(result, source_data)
     
+    def _apply_option_fallback(self, result: Dict[str, Any]):
+        """Apply fallback options when product has no options"""
+        fallback = self.get_fallback_options()
+        logger.info(f"Applying option fallback with config: {fallback}")
+        
+        logger.info(f"_apply_option_fallback called for product: {result.get('title')}")
+        logger.info(f"Fallback enabled: {fallback.get('enabled', False)}")
+        logger.info(f"Current options in result: {result.get('options')}")
+        
+        # Kiểm tra kỹ hơn
+        if not fallback:
+            logger.warning("No fallback_options configuration found!")
+            return
+            
+        if not fallback.get("enabled", False):
+            logger.info("Fallback options not enabled")
+            return
+
+        # Kiểm tra xem product đã có options chưa
+        existing_options = result.get("options")
+        
+        # DEBUG: Kiểm tra logic
+        logger.info(f"Existing options check: {existing_options}")
+        logger.info(f"Type of existing_options: {type(existing_options)}")
+        
+        # Sửa logic kiểm tra: Chỉ bỏ qua nếu existing_options là list khác rỗng
+        if isinstance(existing_options, list) and len(existing_options) > 0:
+            logger.info(f"Product already has {len(existing_options)} options, skipping fallback")
+            return
+        
+        # Nếu existing_options là None hoặc list rỗng, apply fallback
+        logger.info("Product has no options or empty options list, applying fallback...")
+        
+        fallback_values = fallback.get("values", [])
+        logger.info(f"Fallback values: {fallback_values}")
+        
+        if not fallback_values:
+            logger.warning("Fallback options enabled but no values configured")
+            # Tạo fallback mặc định nếu config trống
+            fallback_values = [{
+                "title": "Default",
+                "values": ["Default"]
+            }]
+            logger.info(f"Using default fallback: {fallback_values}")
+        
+        result["options"] = [
+            {
+                "title": opt["title"],
+                "values": opt.get("values", ["Default"])  # Default nếu values trống
+            }
+            for opt in fallback_values
+        ]
+        
+        logger.info(f"Applied fallback options: {result['options']}")
+        
+        # Cập nhật variants với fallback values
+        if result.get('variants'):
+            for variant in result['variants']:
+                variant_options = {}
+                for option in result["options"]:
+                    title = option["title"]
+                    values = option.get("values", [])
+                    if values:
+                        variant_options[title] = values[0]
+                    else:
+                        variant_options[title] = "Default"
+                variant['options'] = variant_options
+                logger.info(f"Updated variant {variant.get('sku')} with options: {variant_options}")
+        
+        logger.info("Successfully applied fallback options")
+
     def _process_simple_product(self, result: Dict, source_data: Dict):
-        """Process simple product"""
-        # Ensure variants array exists
         if 'variants' not in result:
             result['variants'] = []
         
-        # Create single variant
         variant = {
             'title': result.get('title', 'Default Variant'),
             'sku': source_data.get('sku', ''),
             'manage_inventory': True,
             'allow_backorder': False,
-            'inventory_quantity': int(source_data.get('quantity', 0)),
+            # 'inventory_quantity': int(source_data.get('quantity', 0)),
             'prices': self._build_prices(source_data),
             'options': {},
-            'metadata': {}
+            # 'metadata': {}
         }
         
         # Add weight if available
@@ -298,6 +435,41 @@ class ProductMapper(BaseMapper):
             variant['weight'] = float(weight)
         
         result['variants'].append(variant)
+        self._create_product_options_from_metadata(result, source_data)
+        
+    def _create_product_options_from_metadata(self, result: Dict, source_data: Dict):
+        metadata = result.get('metadata', {})
+        options = []
+        
+        option_fields = ['size', 'color', 'material', 'brand']
+        
+        for field in option_fields:
+            if field in metadata:
+                value = metadata[field]
+                if isinstance(value, str):
+                    values = [value]
+                elif isinstance(value, list):
+                    values = value
+                else:
+                    values = [str(value)]
+                
+                options.append({
+                    'title': field.capitalize(),
+                    'values': values
+                })
+        
+        if options:
+            result['options'] = options
+            
+            if result.get('variants'):
+                for variant in result['variants']:
+                    variant_options = {}
+                    for option in options:
+                        title = option['title']
+                        if option['values']:
+                            # Lấy giá trị đầu tiên làm default
+                            variant_options[title] = option['values'][0]
+                    variant['options'] = variant_options
     
     def _process_configurable_product(self, result: Dict, source_data: Dict, context: Dict):
         """Process configurable product with variants"""
@@ -376,63 +548,74 @@ class ProductMapper(BaseMapper):
         
         return options
     
+    def _build_variant_options(self, option_values: Dict[str, str], product_options: List[Dict]) -> Dict[str, str]:
+        result = {}
+        for option in product_options:
+            title = option["title"]
+            if title in option_values:
+                result[title] = option_values[title]
+            else:
+                # Fallback to first value if available
+                if option.get("values"):
+                    result[title] = option["values"][0]
+        return result
+    
     def _build_variant(self, child: Dict, parent_options: List[Dict]) -> Optional[Dict]:
-        """Build variant from child product"""
         if not child:
             return None
-        
-        # Map variant options
-        variant_options = {}
-        custom_attrs = child.get('custom_attributes', [])
-        
-        for attr in custom_attrs:
-            attr_code = attr.get('attribute_code')
-            attr_value = str(attr.get('value'))
-            
-            # Find matching parent option
-            for parent_opt in parent_options:
-                if parent_opt['title'].lower() == attr_code.lower():
-                    # Get display value from value maps
-                    display_value = self.value_maps.get(attr_code, {}).get(attr_value, attr_value)
-                    variant_options[parent_opt['title']] = display_value
-                    break
-        
-        # Build variant title
-        base_title = child.get('name', 'Variant')
-        if variant_options:
-            option_str = ' '.join(variant_options.values())
-            variant_title = f"{base_title} - {option_str}"
-        else:
-            variant_title = base_title
-        
+
         variant = {
-            'title': variant_title,
-            'sku': child.get('sku', ''),
-            'manage_inventory': True,
-            'allow_backorder': False,
-            'inventory_quantity': int(child.get('quantity', 0)),
-            'prices': self._build_prices(child),
-            'options': variant_options,
-            'metadata': {}
+            "title": child.get("name", "Variant"),
+            "sku": child.get("sku", ""),
+            "manage_inventory": True,
+            "allow_backorder": False,
+            "prices": self._build_prices(child),
+            "metadata": {}
         }
-        
-        # Add weight
-        weight = child.get('weight')
+
+        weight = child.get("weight")
         if weight:
-            variant['weight'] = float(weight)
+            variant["weight"] = float(weight)
+        if not parent_options:
+            variant["options"] = {} 
+            return variant
         
+        options_object: Dict[str, str] = {}
+        # option_values_by_title: Dict[str, str] = {}
+
+        for attr in child.get("custom_attributes", []):
+            attr_code = attr.get("attribute_code")
+            attr_value = str(attr.get("value"))
+
+            for parent_opt in parent_options:
+                if parent_opt["title"].lower() == attr_code.lower():
+                    display_value = self.value_maps.get(attr_code, {}).get(attr_value, attr_value)
+                    options_object[parent_opt["title"]] = display_value
+                    break
+
+        missing_options = []
+        for parent_opt in parent_options:
+            title = parent_opt["title"]
+            if title not in options_object:
+                missing_options.append(title)
+                
+        if missing_options:
+            logger.warning(f"Missing options {missing_options} for variant SKU={child.get('sku')}")
+            return None
+
+        variant["options"] = options_object
         return variant
-    
+
     def _build_prices(self, product: Dict) -> List[Dict]:
-        """Build price array for product/variant"""
         price = product.get('price', 0)
+        currency = product.get('currency', 'usd').lower()
         try:
             amount = self.transformer.normalize_price(price)
         except Exception:
             amount = 0
         
         return [{
-            'currency_code': 'usd',
+            'currency_code': currency,
             'amount': amount
         }]
     
@@ -526,9 +709,9 @@ class ProductMapper(BaseMapper):
         }
         
         # Add inventory quantity
-        quantity = variant_data.get('quantity', 0)
-        if quantity is not None:
-            result['inventory_quantity'] = int(quantity)
+        # quantity = variant_data.get('quantity', 0)
+        # if quantity is not None:
+        #     result['inventory_quantity'] = int(quantity)
         
         # Add weight
         weight = variant_data.get('weight')

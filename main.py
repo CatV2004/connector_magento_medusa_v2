@@ -14,7 +14,11 @@ from services.category_sync_service import CategorySyncService
 from services.product_sync_service import ProductSyncService
 from services.customer_sync_service import CustomerSyncService
 from core.dlq_handler import DLQHandler
-from core.pipeline import create_pipeline
+# from core.pipeline import create_pipeline
+from core.pipeline.pipeline import create_pipeline
+
+import subprocess
+
 
 # Configure logging
 logger = setup_logger()
@@ -112,6 +116,7 @@ def sync_categories_interactive(magento: MagentoConnector, medusa: MedusaConnect
     print("\nStarting category sync...")
     
     try:
+        print("sssssss")
         service = CategorySyncService(magento, medusa)
         result = service.sync_all()
         
@@ -538,10 +543,7 @@ def launch_cli_mode():
     print("\nLaunching advanced CLI mode...")
     print("Type 'exit' to return to menu.")
     print("-" * 50)
-    
-    import subprocess
-    import os
-    
+        
     # Run CLI with --help first
     subprocess.run([sys.executable, "connectors/cli.py", "--help"])
     
@@ -618,13 +620,13 @@ def main():
                     print("\nInitializing connectors...")
                     magento = MagentoConnector()
                     medusa = MedusaConnector()
-                if test_connections(magento, medusa):
-                    sync_products_interactive(magento, medusa)
+                # if test_connections(magento, medusa):
+                sync_products_interactive(magento, medusa)
             
             elif choice == '4':
                 # Sync customers
                 print("\nCustomer sync requires CLI mode.")
-                print("Use: python connectors/cli.py sync customers")
+                print("Use: python cli.py sync customers")
                 input("\nPress Enter to continue...")
             
             elif choice == '5':

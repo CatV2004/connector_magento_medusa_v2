@@ -1,8 +1,11 @@
+from sys import prefix
 import cloudinary
 import cloudinary.uploader
 from typing import List, Dict
 from utils.logger import logger
 from config.settings import CLOUDINARY
+from config.settings import MAGENTO
+from pathlib import Path
 
 
 def configure_cloudinary():
@@ -20,59 +23,74 @@ def configure_cloudinary():
         logger.warning(f"Cloudinary configuration failed: {e}")
     return False
 
+def resolve_local_image_path(image_url: str) -> Path | None:
+    """
+    Convert Magento image path (/m/b/file.jpg)
+    to local filesystem path
+    """
+    if not image_url:
+        return None
 
-def upload_images_to_cloudinary(images: List[Dict], folder: str = "products") -> List[Dict]:
-    """
-    Upload images to Cloudinary
-    
-    Args:
-        images: List of image dictionaries with 'url' key
-        folder: Cloudinary folder path
-        
-    Returns:
-        List of image dictionaries with Cloudinary URLs
-    """
+    # remove leading slash
+    relative_path = image_url.lstrip("/")
+
+    local_path = MAGENTO.MAGENTO_MEDIA_ROOT / relative_path
+
+    if local_path.exists() and local_path.is_file():
+        return local_path
+
+    return None
+
+def upload_images_to_cloudinary(images: List[Dict], folder="products", prefix="product") -> List[Dict]:
     if not configure_cloudinary():
         return images
-    
+
     uploaded_images = []
-    
+
     for i, image in enumerate(images):
-        image_url = image.get('url', '')
-        
-        if not image_url or not image_url.startswith(('http://', 'https://')):
-            # Skip local paths or empty URLs
-            uploaded_images.append(image)
-            continue
-        
-        try:
-            # Upload to Cloudinary
-            result = cloudinary.uploader.upload(
-                image_url,
-                folder=folder,
-                public_id=f"image_{i}",
-                overwrite=False,
-                resource_type="auto"
-            )
-            
-            # Get secure URL
-            cloudinary_url = result.get('secure_url', '')
-            
-            if cloudinary_url:
-                uploaded_images.append({
-                    'url': cloudinary_url,
-                    'alt': image.get('alt', ''),
-                    'position': image.get('position', i),
-                    'cloudinary_id': result.get('public_id')
-                })
-                logger.debug(f"Uploaded image to Cloudinary: {cloudinary_url}")
-            else:
-                uploaded_images.append(image)
-                
-        except Exception as e:
-            logger.warning(f"Failed to upload image to Cloudinary: {e}")
-            uploaded_images.append(image)
+        url = image.get("url", "")
+        image_url = f"/{prefix}{url}"
     
+        local_path = resolve_local_image_path(image_url)
+
+        try:
+            if local_path:
+                result = cloudinary.uploader.upload(
+                    str(local_path),
+                    folder=folder,
+                    public_id=f"product_{i}",
+                    overwrite=False,
+                    resource_type="image"
+                )
+            elif image_url.startswith(("http://", "https://")):
+                # Upload URL
+                result = cloudinary.uploader.upload(
+                    image_url,
+                    folder=folder,
+                    public_id=f"product_{i}",
+                    overwrite=False,
+                    resource_type="image"
+                )
+            else:
+                # Không xử lý được
+                uploaded_images.append(image)
+                continue
+
+            cloudinary_url = result.get("secure_url")
+
+            uploaded_images.append({
+                "url": cloudinary_url,
+                "alt": image.get("alt", ""),
+                "position": image.get("position", i),
+                "cloudinary_id": result.get("public_id"),
+            })
+
+            logger.info(f"Uploaded image to Cloudinary: {cloudinary_url}")
+
+        except Exception as e:
+            logger.warning(f"Failed to upload image {image_url}: {e}")
+            uploaded_images.append(image)
+
     return uploaded_images
 
 

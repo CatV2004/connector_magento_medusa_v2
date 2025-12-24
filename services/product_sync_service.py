@@ -7,7 +7,8 @@ from core.dlq_handler import DLQHandler
 from connectors.magento.magento_connector import MagentoConnector
 from connectors.medusa.medusa_connector import MedusaConnector
 from mappers.utils.image_utils import upload_images_to_cloudinary
-
+from core.mapping.mapping_factory import MappingFactory
+from pathlib import Path
 
 class ProductSyncService:
     """Service for syncing products from Magento to Medusa"""
@@ -16,7 +17,15 @@ class ProductSyncService:
                  category_mapping: Optional[Dict] = None):
         self.magento = magento
         self.medusa = medusa
-        self.mapper = ProductMapper(magento, medusa)
+        mapping = MappingFactory(
+            Path("config/mapping")
+        ).get("product")
+
+        self.mapper = ProductMapper(
+            mapping_config=mapping,
+            source_connector=magento,
+            target_connector=medusa
+        )
         self.dlq = DLQHandler('products')
         self.category_mapping = category_mapping or {}
         
@@ -35,16 +44,6 @@ class ProductSyncService:
         self.processed_skus: Set[str] = set()
         
     def sync_all(self, batch_size: int = 50, max_pages: Optional[int] = None) -> Dict:
-        """
-        Sync all products from Magento to Medusa
-        
-        Args:
-            batch_size: Number of products per batch
-            max_pages: Maximum number of pages to process (None for all)
-            
-        Returns:
-            Dict: Sync statistics
-        """
         logger.info("Starting product sync from Magento to Medusa...")
         logger.info(f"Batch size: {batch_size}, Category mapping: {len(self.category_mapping)} items")
         
@@ -264,9 +263,7 @@ class ProductSyncService:
             })
     
     def _process_images(self, medusa_data: Dict, magento_data: Dict) -> Dict:
-        """Process and upload product images"""
         try:
-            # Check if Cloudinary is configured
             from config.settings import CLOUDINARY
             has_cloudinary = all([
                 CLOUDINARY.CLOUD_NAME,
@@ -274,24 +271,37 @@ class ProductSyncService:
                 CLOUDINARY.API_SECRET
             ])
             
+            logger.info(f"Cloudinary configured: {has_cloudinary}")
+            logger.info(f"Images to process: {len(medusa_data.get('images', []))}")
+            
             if has_cloudinary and medusa_data.get('images'):
-                # Upload images to Cloudinary
+                logger.info(f"Uploading {len(medusa_data['images'])} images to Cloudinary...")
+                
                 uploaded_images = upload_images_to_cloudinary(
                     medusa_data['images'],
                     folder=f"products/{magento_data.get('sku', 'unknown')}"
                 )
                 
-                # Update image URLs
+                logger.info(f"Uploaded {len(uploaded_images)} images successfully")
+                
+                # Kiểm tra xem URLs có thay đổi không
+                for i, (original, uploaded) in enumerate(zip(medusa_data['images'], uploaded_images)):
+                    if original.get('url') != uploaded.get('url'):
+                        logger.info(f"Image {i}: {original.get('url')[:50]}... -> {uploaded.get('url')[:50]}...")
+                
                 medusa_data['images'] = uploaded_images
                 
-                # Update thumbnail if exists
                 if uploaded_images:
                     medusa_data['thumbnail'] = uploaded_images[0]['url']
+                    logger.info(f"Set thumbnail to: {uploaded_images[0]['url'][:50]}...")
+            else:
+                logger.info("Skipping Cloudinary upload (no images or not configured)")
         
-        except ImportError:
+        except ImportError as e:
+            logger.error(f"Import error: {e}")
             logger.info("Cloudinary not configured, using local image paths")
         except Exception as e:
-            logger.warning(f"Image processing failed: {e}")
+            logger.error(f"Image processing failed: {e}", exc_info=True)
         
         return medusa_data
     

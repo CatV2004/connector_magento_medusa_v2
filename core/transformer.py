@@ -66,7 +66,23 @@ class Transformer:
         except Exception as e:
             logger.error(f"HTML to text conversion failed: {e}")
             return html_content
-    
+    def clean_html(self, html_content: str) -> str:
+        """Clean HTML but keep basic formatting"""
+        if not html_content:
+            return ""
+        
+        try:
+            allowed_tags = ['p', 'br', 'b', 'strong', 'i', 'em', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4']
+            soup = BeautifulSoup(html_content, 'html.parser')
+            
+            for tag in soup.find_all(True):
+                if tag.name not in allowed_tags:
+                    tag.unwrap() 
+            
+            return str(soup)
+        except Exception:
+            return html_content
+        
     @staticmethod
     def to_boolean(value: Any) -> bool:
         """Convert various formats to boolean"""

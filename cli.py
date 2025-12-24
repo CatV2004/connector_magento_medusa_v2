@@ -1,15 +1,15 @@
-#!/usr/bin/env python3
-"""
-Command Line Interface for Magento to Medusa Sync
-"""
-
 import sys
 import argparse
 import json
 import os
+import yaml
+import asyncio
+
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any
+from core.dlq_handler import DLQHandler
+from mappers.base_mapper import BaseMapper
 
 # Add parent directory to path
 sys.path.append(str(Path(__file__).parent.parent))
@@ -20,7 +20,10 @@ from connectors.medusa.medusa_connector import MedusaConnector
 from services.category_sync_service import CategorySyncService
 from services.product_sync_service import ProductSyncService
 from services.customer_sync_service import CustomerSyncService
-from core.pipeline import create_pipeline, SyncPipeline
+# from core.pipeline import create_pipeline, SyncPipeline
+from core.pipeline.sync_pipeline import SyncPipeline
+from core.pipeline.pipeline import create_pipeline
+from core.mapping.mapping_factory import MappingFactory
 
 
 def create_parser():
@@ -29,16 +32,16 @@ def create_parser():
         description='Magento to Medusa Data Sync Tool',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Examples:
-  %(prog)s sync categories
-  %(prog)s sync products --batch-size 50 --max-pages 10
-  %(prog)s sync all --dry-run
-  %(prog)s dlq export --entity products --format csv
-  %(prog)s pipeline run
-  %(prog)s pipeline run --async --dry-run
-  %(prog)s pipeline status
-  %(prog)s pipeline cancel --pipeline-id pipeline_20231201_123456
-  %(prog)s pipeline resume --state-file pipeline_state_20231201_123456.json
+            Examples:
+            %(prog)s sync categories
+            %(prog)s sync products --batch-size 50 --max-pages 10
+            %(prog)s sync all --dry-run
+            %(prog)s dlq export --entity products --format csv
+            %(prog)s pipeline run
+            %(prog)s pipeline run --async --dry-run
+            %(prog)s pipeline status
+            %(prog)s pipeline cancel --pipeline-id pipeline_20231201_123456
+            %(prog)s pipeline resume --state-file pipeline_state_20231201_123456.json
         """
     )
     
@@ -57,7 +60,7 @@ Examples:
                            help='Test run without making changes')
     sync_parser.add_argument('--resume', action='store_true',
                            help='Resume from last sync position')
-    sync_parser.add_argument('--output', type=str,
+    sync_parser.add_argument('--output', type=str, default='exported/sync_results.json',
                            help='Output file for sync results')
     
     # DLQ command
@@ -268,7 +271,6 @@ def handle_sync_command(args, magento: MagentoConnector, medusa: MedusaConnector
 
 def handle_dlq_command(args):
     """Handle DLQ command"""
-    from core.dlq_handler import DLQHandler
     
     entities = []
     if args.entity == 'all' or not args.entity:
@@ -289,8 +291,6 @@ def handle_dlq_command(args):
             if args.format == 'csv':
                 dlq.export_to_csv(output_file)
             else:
-                # Export as JSON
-                import json
                 items = []
                 pattern = f"{entity}_*.json"
                 dlq_dir = Path("dlq")
@@ -381,7 +381,6 @@ def handle_pipeline_run(args, magento: MagentoConnector, medusa: MedusaConnector
     # Load config if specified
     config = {}
     if args.config:
-        import yaml
         with open(args.config, 'r') as f:
             config = yaml.safe_load(f)
     
@@ -392,7 +391,6 @@ def handle_pipeline_run(args, magento: MagentoConnector, medusa: MedusaConnector
     # Run pipeline
     try:
         if args.async_run:
-            import asyncio
             result = asyncio.run(pipeline.run_async(dry_run=args.dry_run))
         else:
             result = pipeline.run(dry_run=args.dry_run)
@@ -576,35 +574,27 @@ def handle_pipeline_resume(args, magento: MagentoConnector, medusa: MedusaConnec
 
 def validate_mapping_config(mapping_file: str):
     """Validate mapping configuration file"""
-    from mappers.base_mapper import BaseMapper
+    factory = MappingFactory(Path("config/mapping"))
+    entities = ["category", "product", "customer"] if not mapping_file else [mapping_file]
     
-    try:
-        if not mapping_file:
-            mapping_files = ['category_mapping.yaml', 'product_mapping.yaml', 'customer_mapping.yaml']
-        else:
-            mapping_files = [mapping_file]
-        
-        for file in mapping_files:
-            print(f"Validating {file}...")
-            try:
-                mapper = BaseMapper(file, None, None)
-                print(f"  ✓ Valid YAML structure")
-                print(f"  ✓ Entity: {mapper.entity}")
-                print(f"  ✓ Source: {mapper.source_system} -> Target: {mapper.target_system}")
-                
-                # Check required sections
-                required_sections = ['fields', 'validation']
-                for section in required_sections:
-                    if section in mapper.mapping_config:
-                        print(f"  ✓ Has '{section}' section")
-                    else:
-                        print(f"  ✗ Missing '{section}' section")
-                
-            except Exception as e:
-                print(f"  ✗ Validation failed: {e}")
-    
-    except Exception as e:
-        print(f"Validation error: {e}")
+    for entity in entities:
+        print(f"Validating {entity} mapping...")
+        try:
+            config = factory.get(config)
+            print(f"  ✓ Valid YAML structure")
+            print(f"  ✓ Entity: {config.entity}")
+            print(f"  ✓ Source: {config.source_system} -> Target: {config.target_system}")
+            
+            # Check required sections
+            required_sections = ['fields', 'validation']
+            for section in required_sections:
+                if section in config.mapping_config:
+                    print(f"  ✓ Has '{section}' section")
+                else:
+                    print(f"  ✗ Missing '{section}' section")
+            
+        except Exception as e:
+            print(f"  ✗ Validation failed: {e}")
 
 
 def generate_mapping_template(entity_type: str):
@@ -647,7 +637,6 @@ def generate_mapping_template(entity_type: str):
         return
     
     output_file = f"{entity_type}_mapping_template.yaml"
-    import yaml
     
     with open(output_file, 'w') as f:
         yaml.dump(templates[entity_type], f, default_flow_style=False)
@@ -657,7 +646,6 @@ def generate_mapping_template(entity_type: str):
 
 def save_results(results: Dict, output_file: str):
     """Save sync results to file"""
-    import json
     
     with open(output_file, 'w') as f:
         json.dump(results, f, indent=2, default=str)

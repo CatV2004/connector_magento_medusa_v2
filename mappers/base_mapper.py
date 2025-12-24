@@ -10,23 +10,28 @@ T = TypeVar('T')
 class BaseMapper(ABC, Generic[T]):
     """Base mapper class for all entity mappings"""
     
-    def __init__(self, mapping_file: str, source_connector=None, target_connector=None):
-        self.mapping_config = self._load_mapping_config(mapping_file)
+    def __init__(
+            self, 
+            mapping_config: Dict[str, Any], 
+            source_connector=None, 
+            target_connector=None
+        ):
+        self.mapping_config = mapping_config
         self.source_connector = source_connector
         self.target_connector = target_connector
+        
         self.entity = self.mapping_config.get('entity', 'unknown')
         self.source_system = self.mapping_config.get('source', 'unknown')
         self.target_system = self.mapping_config.get('target', 'unknown')
         
-    def _load_mapping_config(self, mapping_file: str) -> Dict[str, Any]:
-        """Load YAML mapping configuration"""
-        try:
-            config_path = Path(__file__).parent.parent / 'config' / 'mapping' / mapping_file
-            with open(config_path, 'r', encoding='utf-8') as f:
-                return yaml.safe_load(f)
-        except Exception as e:
-            logger.error(f"Failed to load mapping config {mapping_file}: {e}")
-            raise
+    # def _load_mapping_config(self, mapping_file: str) -> Dict[str, Any]:
+    #     try:
+    #         config_path = Path(__file__).parent.parent / 'config' / 'mapping' / mapping_file
+    #         with open(config_path, 'r', encoding='utf-8') as f:
+    #             return yaml.safe_load(f)
+    #     except Exception as e:
+    #         logger.error(f"Failed to load mapping config {mapping_file}: {e}")
+    #         raise
             
     @abstractmethod
     def map(self, source_data: Dict[str, Any], context: Optional[Dict] = None) -> Dict[str, Any]:

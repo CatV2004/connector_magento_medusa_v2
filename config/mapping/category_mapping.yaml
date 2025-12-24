@@ -68,12 +68,12 @@ fields:
     transform: "slugify"
     
   created_at:
-    target: "created_at"
+    target: null
     required: false
     type: "datetime"
     
   updated_at:
-    target: "updated_at"
+    target: null
     required: false
     type: "datetime"
 
