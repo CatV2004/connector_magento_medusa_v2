@@ -115,6 +115,10 @@ connector_magento_medusa_v2/
 │   │   ├── category_mapping.yaml  # Category field mapping
 │   │   ├── customer_mapping.yaml  # Customer field mapping
 │   │   └── product_mapping.yaml   # Product field mapping
+│   │   └── order_mapping.yaml     # Order field mapping
+│   │   └── address_mapping.yaml   # Address field mapping
+│   │   └── invoice_mapping.yaml   # Invoice field mapping
+│   │   └── payment_mapping.yaml   # Payment field mapping
 │   │
 │   ├── __init__.py
 │   ├── pipeline_config.yaml       # Pipeline behavior configuration
@@ -172,12 +176,21 @@ connector_magento_medusa_v2/
 │   ├── category_mapper.py
 │   ├── customer_mapper.py
 │   └── product_mapper.py
+│   └── order_mapper.py
+│   └── address_mapper.py
+│   └── invoice_mapper.py
+│   └── payment_mapper.py
+
 │
 ├── services/                      # High-level sync services
 │   ├── __init__.py
 │   ├── category_sync_service.py
 │   ├── customer_sync_service.py
 │   └── product_sync_service.py
+│   ├── address_sync_service.py
+│   ├── invoice_sync_service.py
+│   └── order_sync_service.py
+│   ├── payment_sync_service.py
 │
 ├── utils/                         # Shared cross-cutting utilities
 │   ├── helpers.py            
