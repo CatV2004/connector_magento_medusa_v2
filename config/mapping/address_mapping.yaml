@@ -1,0 +1,175 @@
+version: "1.0"
+source: "magento"
+target: "medusa"
+entity: "address"
+
+fields:
+  firstname:
+    target: "first_name"
+    required: true
+    type: "string"
+    transform: "strip"
+    
+  lastname:
+    target: "last_name"
+    required: true
+    type: "string"
+    transform: "strip"
+    
+  company:
+    target: "company"
+    required: false
+    type: "string"
+    transform: "strip"
+    
+  street:
+    target: ["address_1", "address_2"]
+    required: true
+    type: "array"
+    transform: "split_street"
+    
+  city:
+    target: "city"
+    required: true
+    type: "string"
+    transform: "strip"
+    
+  region:
+    target: "province"
+    required: false
+    type: "string"
+    source_path: "region.region"
+    transform: "format_province_code"
+    
+  postcode:
+    target: "postal_code"
+    required: true
+    type: "string"
+    transform: "strip"
+    
+  country_id:
+    target: "country_code"
+    required: true
+    type: "string"
+    transform: "map_country_code"
+    
+  telephone:
+    target: "phone"
+    required: false
+    type: "string"
+    transform: "clean_phone"
+    
+  # Address name - có thể dựa trên loại địa chỉ
+  address_name:
+    target: "address_name"
+    required: false
+    type: "string"
+    rule: |
+      if is_default_shipping and is_default_billing:
+        return "Default Address"
+      elif is_default_shipping:
+        return "Default Shipping Address"
+      elif is_default_billing:
+        return "Default Billing Address"
+      else:
+        return "Home Address"
+
+# Address flags - cần mapping sang Medusa format
+metadata_mappings:
+  is_default_shipping:
+    target: "is_default_shipping"
+    required: false
+    type: "boolean"
+    default: false
+    
+  is_default_billing:
+    target: "is_default_billing"
+    required: false
+    type: "boolean"
+    default: false
+    
+  # Giữ nguyên source id từ Magento
+  source_address_id:
+    target: "metadata.source_address_id"
+    required: false
+    type: "string"
+    
+  address_type:
+    target: "metadata.address_type"
+    required: false
+    type: "string"
+    rule: |
+      if is_default_shipping and is_default_billing:
+        return "both"
+      elif is_default_shipping:
+        return "shipping"
+      elif is_default_billing:
+        return "billing"
+      else:
+        return "general"
+
+# Custom transformations cho address
+transformations:
+  split_street:
+    rule: |
+      if is_array(street):
+        if length(street) >= 2:
+          return street[0:2]
+        else:
+          return [first(street), '']
+      else:
+        lines = split(street, '\\n')
+        if length(lines) >= 2:
+          return lines[0:2]
+        else:
+          return [street, '']
+    
+  map_country_code:
+    rule: |
+      country_map = {
+        'US': 'us', 'GB': 'gb', 'CA': 'ca', 'AU': 'au',
+        'DE': 'de', 'FR': 'fr', 'IT': 'it', 'ES': 'es',
+        'JP': 'jp', 'CN': 'cn', 'IN': 'in', 'BR': 'br',
+        'MX': 'mx'
+      }
+      return country_map.get(upper(country_id), lower(country_id))
+  
+  format_province_code:
+    rule: |
+      if region and country_id:
+        # Format: us-ca, gb-eng, etc.
+        country_code = lower(country_id)
+        province_code = lower(regex_replace(region, '[^a-z0-9]', '-'))
+        return f"{country_code}-{province_code}"
+      else:
+        return ""
+    
+  clean_phone:
+    rule: |
+      if phone:
+        cleaned = regex_replace(phone, '[^\\d+]', '')
+        if not starts_with(cleaned, '+'):
+          if length(cleaned) == 10:
+            return '+1' + cleaned
+          elif length(cleaned) == 11 and starts_with(cleaned, '1'):
+            return '+' + cleaned
+          else:
+            return '+' + cleaned
+        else:
+          return cleaned
+      else:
+        return ''
+    
+  strip:
+    rule: "trim(value)"
+
+# Validation rules cho address
+validation:
+  required_fields: ["street", "city", "country_id", "postcode"]
+  country_validation: true
+  province_validation:
+    enabled_for: ["us", "ca", "gb", "au"]
+  postal_code_format:
+    US: '^\d{5}(-\d{4})?$'
+    CA: '^[A-Za-z]\d[A-Za-z] \d[A-Za-z]\d$'
+    GB: '^[A-Z]{1,2}\d[A-Z\d]? ?\d[A-Z]{2}$'

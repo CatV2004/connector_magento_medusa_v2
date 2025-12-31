@@ -35,9 +35,19 @@ class Transformer:
         
         return text
     
+    def transform(self, value: Any, transform_name: str) -> Any:
+        transform_method = getattr(self, f"_transform_{transform_name}", None)
+        
+        if transform_method:
+            return transform_method(value)
+        else:
+            if isinstance(value, str):
+                return self._apply_string_transform(value, transform_name)
+            else:
+                return value
+    
     @staticmethod
     def html_to_text(html_content: str) -> str:
-        """Convert HTML to plain text"""
         if not html_content:
             return ''
             
@@ -114,17 +124,6 @@ class Transformer:
     @staticmethod
     def normalize_price(price: Any, from_currency: str = None, 
                        to_currency: str = 'usd') -> int:
-        """
-        Normalize price (convert to cents/integer)
-        
-        Args:
-            price: Original price (string, float, int)
-            from_currency: Original currency code
-            to_currency: Target currency code
-            
-        Returns:
-            int: Price in smallest unit (cents for USD)
-        """
         try:
             # Convert to float
             price_float = float(price)
@@ -140,7 +139,6 @@ class Transformer:
     
     @staticmethod
     def truncate(text: str, max_length: int, suffix: str = '...') -> str:
-        """Truncate text to maximum length"""
         if not text or len(text) <= max_length:
             return text
             
@@ -148,7 +146,6 @@ class Transformer:
     
     @staticmethod
     def clean_sku(sku: str) -> str:
-        """Clean SKU - remove special characters, normalize"""
         if not sku:
             return ''
             
@@ -162,3 +159,15 @@ class Transformer:
         sku = re.sub(r'[^a-zA-Z0-9\-_]', '', sku)
         
         return sku
+    
+    def _apply_string_transform(self, value: str, transform_name: str) -> str:
+        if transform_name == 'strip':
+            return value.strip()
+        elif transform_name == 'lower':
+            return value.lower()
+        elif transform_name == 'upper':
+            return value.upper()
+        elif transform_name == 'title':
+            return value.title()
+        else:
+            return value

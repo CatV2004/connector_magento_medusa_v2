@@ -47,7 +47,7 @@ class PasswordResetService:
     async def _send_customer_invite(self, email: str) -> bool:
         try:
             # Check if customer exists
-            customers = await self.medusa.list_customers(email=email)
+            customers = await self.medusa.get_customer_by_email(email=email)
             
             if not customers or len(customers) == 0:
                 logger.warning(f"Customer not found: {email}")

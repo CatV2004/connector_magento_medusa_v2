@@ -138,3 +138,6 @@ class MagentoConnector(BaseConnector):
         }
         
         return self._request("get", "customers/search", params=params).get("items", []) 
+    
+    def get_customer(self, customer_id:int):
+        return self._request("get", f"customers/{customer_id}")

@@ -3,9 +3,7 @@ source: "magento"
 target: "medusa"
 entity: "customer"
 
-# Field mappings
 fields:
-  # Basic customer information
   id:
     target: "metadata.source_id"
     required: false
@@ -31,27 +29,12 @@ fields:
     type: "string"
     transform: "strip"
     
-  full_name:
-    target: "full_name"
-    required: false
-    type: "string"
-    rule: "concat(firstname, ' ', lastname)"
-    
-  # Account status
-  is_active:
-    target: "has_account"
-    required: false
-    type: "boolean"
-    default: true
-    
-  # Company information
   company:
     target: "company_name"
     required: false
     type: "string"
     transform: "strip"
     
-  # Contact information
   telephone:
     target: "phone"
     required: false
@@ -59,24 +42,12 @@ fields:
     transform: "clean_phone"
     source_paths: ["telephone", "phone"]
     
-  # Dates
-  created_at:
-    target: null
-    required: false
-    type: "datetime"
-    
-  updated_at:
-    target: null
-    required: false
-    type: "datetime"
-    
-  # Customer group
+  # Metadata fields
   group_id:
     target: "metadata.customer_group"
     required: false
     type: "integer"
     
-  # Store information
   store_id:
     target: "metadata.store_id"
     required: false
@@ -87,136 +58,28 @@ fields:
     required: false
     type: "integer"
     
-  # Default addresses
-  default_billing:
-    target: "metadata.default_billing_address_id"
-    required: false
-    type: "string"
-    
-  default_shipping:
-    target: "metadata.default_shipping_address_id"
-    required: false
-    type: "string"
-    
-  # Gender
   gender:
     target: "metadata.gender"
     required: false
     type: "integer"
     
-  # Date of birth
-  dob:
-    target: "date_of_birth"
-    required: false
-    type: "date"
-    transform: "parse_date"
-    
-  # Tax/VAT
   taxvat:
-    target: "tax_number"
+    target: "metadata.tax_number"
     required: false
     type: "string"
     
-  # Custom attributes
-  custom_attributes:
-    target: null  # Handled separately
+  # Thêm các trường khác cho metadata
+  created_at:
+    target: "metadata.created_at"
     required: false
-    type: "array"
+    type: "datetime"
+    
+  updated_at:
+    target: "metadata.updated_at"
+    required: false
+    type: "datetime"
 
-# Address mappings
-address_fields:
-  # Basic address fields
-  firstname:
-    target: "first_name"
-    required: true
-    type: "string"
-    transform: "strip"
-    
-  lastname:
-    target: "last_name"
-    required: true
-    type: "string"
-    transform: "strip"
-    
-  company:
-    target: "company"
-    required: false
-    type: "string"
-    transform: "strip"
-    
-  street:
-    target: ["address_1", "address_2"]
-    required: true
-    type: "array"
-    transform: "split_street"
-    
-  city:
-    target: "city"
-    required: true
-    type: "string"
-    transform: "strip"
-    
-  region:
-    target: "province"
-    required: false
-    type: "string"
-    source_path: "region.region"
-    
-  postcode:
-    target: "postal_code"
-    required: true
-    type: "string"
-    transform: "strip"
-    
-  country_id:
-    target: "country_code"
-    required: true
-    type: "string"
-    transform: "map_country_code"
-    
-  telephone:
-    target: "phone"
-    required: false
-    type: "string"
-    transform: "clean_phone"
-    
-  # Address type flags
-  is_default_shipping:
-    target: "metadata.is_default_shipping"
-    required: false
-    type: "boolean"
-    
-  is_default_billing:
-    target: "metadata.is_default_billing"
-    required: false
-    type: "boolean"
-
-# Customer type specific mappings
-type_mappings:
-  individual:
-    fields:
-      has_account: true
-      customer_type: "individual"
-      
-  business:
-    fields:
-      has_account: true
-      customer_type: "company"
-      company_name:
-        required: true
-        target: "company_name"
-
-# Address processing
-address_rules:
-  shipping:
-    priority: ["is_default_shipping", "first_address"]
-    required_fields: ["street", "city", "country_id", "postcode"]
-    
-  billing:
-    priority: ["is_default_billing", "is_default_shipping", "first_address"]
-    required_fields: ["street", "city", "country_id", "postcode"]
-
-# Custom transformations
+# Custom transformations (chỉ những cái cần cho customer)
 transformations:
   clean_email:
     rule: "lower(strip(email))"
@@ -236,36 +99,6 @@ transformations:
           return cleaned
       else:
         return ''
-    
-  map_country_code:
-    rule: |
-      country_map = {
-        'US': 'us', 'GB': 'gb', 'CA': 'ca', 'AU': 'au',
-        'DE': 'de', 'FR': 'fr', 'IT': 'it', 'ES': 'es',
-        'JP': 'jp', 'CN': 'cn', 'IN': 'in', 'BR': 'br',
-        'MX': 'mx'
-      }
-      return country_map.get(upper(country_id), lower(country_id))
-    
-  split_street:
-    rule: |
-      if is_array(street):
-        if length(street) >= 2:
-          return street[0:2]
-        else:
-          return [first(street), '']
-      else:
-        lines = split(street, '\\n')
-        if length(lines) >= 2:
-          return lines[0:2]
-        else:
-          return [street, '']
-    
-  parse_date:
-    rule: "parse_datetime(dob, 'YYYY-MM-DD')"
-    
-  concat:
-    rule: "firstname + ' ' + lastname"
     
   strip:
     rule: "trim(value)"

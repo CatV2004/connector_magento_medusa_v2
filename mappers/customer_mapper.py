@@ -1,15 +1,27 @@
-from typing import Any, Dict, Optional, List
+"""
+Customer Mapper - Handles Magento to Medusa customer data mapping.
+Single Responsibility: Only maps customer fields, not addresses.
+"""
+from typing import Any, Dict, Optional
+from dataclasses import dataclass, field
 from mappers.base_mapper import BaseMapper
 from core.transformer import Transformer
 from core.validator import Validator
 from utils.logger import logger
-import re
 from datetime import datetime
-import pycountry
+import re
+
+
+@dataclass
+class CustomerMappingResult:
+    """Result container for customer mapping operation"""
+    customer_data: Dict[str, Any] = field(default_factory=dict)
+    validation_errors: Dict[str, list] = field(default_factory=dict)
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 class CustomerMapper(BaseMapper):
-    """Mapper for Magento to Medusa customer conversion"""
+    """Mapper for Magento to Medusa CUSTOMER conversion ONLY"""
     
     def __init__(
         self, 
@@ -17,6 +29,7 @@ class CustomerMapper(BaseMapper):
         source_connector=None, 
         target_connector=None 
     ):
+        # Gọi constructor của BaseMapper với mapping_config
         super().__init__(
             mapping_config=mapping_config, 
             source_connector=source_connector,
@@ -25,296 +38,301 @@ class CustomerMapper(BaseMapper):
         self.transformer = Transformer()
         self.validator = Validator()
         
-    def map(self, source_data: Dict[str, Any], context: Optional[Dict] = None) -> Dict[str, Any]:
+        # Sửa lỗi: Lấy required_fields từ mapping_config, không phải self.config
+        self._required_fields = mapping_config.get('validation', {}).get('required_fields', [])
+    
+    def map(self, source_data: Dict[str, Any], context: Optional[Dict] = None) -> CustomerMappingResult:
         if context is None:
             context = {}
             
-        # Initialize result
-        result = {
-            "metadata": {},
-            "billing_address": {},
-            "shipping_address": {}
-        }
+        result = CustomerMappingResult()
         
         try:
-            # Map basic fields using config
-            self._map_fields_with_config(result, source_data)
+            # Step 1: Validate input
+            result.validation_errors = self.validate(source_data)
+            if result.validation_errors:
+                logger.warning(f"Customer validation errors: {result.validation_errors}")
             
-            # Map addresses
-            self._map_addresses_with_config(result, source_data)
+            # Step 2: Map basic fields
+            self._map_basic_fields(result, source_data)
             
-            # Map custom attributes
+            # Step 3: Map custom attributes to metadata
             self._map_custom_attributes(result, source_data)
             
-            # Add metadata
-            result = self._add_metadata(result, source_data, context)
+            # Step 4: Add metadata
+            self._add_metadata(result, source_data, context)
             
-            # Apply custom transformations
-            result = self._apply_custom_transformations(result, source_data)
+            # Step 5: Apply post-mapping transformations
+            self._apply_post_mapping_transformations(result.customer_data)
+            
+            # Step 6: Validate output format
+            self._validate_output_format(result.customer_data)
             
         except Exception as e:
             logger.error(f"Error mapping customer: {e}")
+            # Add error to validation result
+            result.validation_errors.setdefault('mapping_errors', []).append(str(e))
             raise
             
         return result
     
-    def _map_fields_with_config(self, result: Dict, source_data: Dict):
-        """Map fields using YAML configuration"""
-        fields_config = self.config.get('fields', {})
+    def validate(self, source_data: Dict[str, Any]) -> Dict[str, list]:
+        errors = {
+            "missing_required": [],
+            "invalid_format": [],
+            "business_rules": []
+        }
+        
+        # Check required fields
+        for field_name in self._required_fields:
+            value = self._get_nested_value(source_data, field_name)
+            if not value or (isinstance(value, str) and value.strip() == ''):
+                errors["missing_required"].append(field_name)
+        
+        # Email validation
+        email = source_data.get('email', '')
+        if email and not self._is_valid_email(email):
+            errors["invalid_format"].append('email')
+        
+        # Phone validation (if exists)
+        phone = source_data.get('telephone') or source_data.get('phone', '')
+        if phone and not self._is_valid_phone(phone):
+            errors["invalid_format"].append('phone')
+        
+        # Business rules validation
+        if not self._validate_business_rules(source_data):
+            errors["business_rules"].append("Customer violates business rules")
+        
+        # Clean up empty error categories
+        return {k: v for k, v in errors.items() if v}
+    
+    def _map_basic_fields(self, result: CustomerMappingResult, source_data: Dict):
+        # Sửa lỗi: Lấy fields_config từ mapping_config, không phải self.config
+        fields_config = self.mapping_config.get('fields', {})
         
         for source_field, field_config in fields_config.items():
             if not isinstance(field_config, dict):
                 continue
                 
-            # Skip custom attributes field (handled separately)
-            if source_field == 'custom_attributes':
+            # Skip special handling fields
+            if source_field in ['custom_attributes', 'addresses']:
                 continue
                 
             target_field = field_config.get('target')
-            if target_field is None:
-                continue
-                
-            # Get source value from multiple possible paths
-            source_value = self._get_source_value(source_data, source_field, field_config)
-            
-            # Apply transformation if specified
-            transform = field_config.get('transform')
-            if transform and source_value is not None:
-                transformed_value = self.transformer.transform(source_value, transform)
-            else:
-                transformed_value = source_value
-                
-            # Set default value if empty
-            if transformed_value is None and 'default' in field_config:
-                transformed_value = field_config['default']
-                
-            # Set value if not None
-            if transformed_value is not None:
-                self._set_nested_value(result, target_field, transformed_value)
-    
-    def _get_source_value(self, source_data: Dict, source_field: str, field_config: Dict) -> Any:
-        """Get value from source data, checking multiple possible paths"""
-        # Check for source_paths first
-        source_paths = field_config.get('source_paths', [])
-        if source_paths:
-            for path in source_paths:
-                value = self._get_nested_value(source_data, path)
-                if value is not None and value != '':
-                    return value
-        
-        # Check for single source_path
-        source_path = field_config.get('source_path', source_field)
-        return self._get_nested_value(source_data, source_path)
-    
-    def _map_addresses_with_config(self, result: Dict, source_data: Dict):
-        """Map customer addresses using configuration"""
-        addresses = source_data.get('addresses', [])
-        
-        if not addresses:
-            return
-            
-        # Get address configuration
-        address_fields_config = self.config.get('address_fields', {})
-        address_rules_config = self.config.get('address_rules', {})
-        
-        # Process shipping address
-        shipping_address = self._select_address_by_priority(
-            addresses, 
-            address_rules_config.get('shipping', {}).get('priority', [])
-        )
-        
-        if shipping_address:
-            result['shipping_address'] = self._map_single_address(
-                shipping_address, 
-                address_fields_config
-            )
-        
-        # Process billing address
-        billing_address = self._select_address_by_priority(
-            addresses,
-            address_rules_config.get('billing', {}).get('priority', [])
-        )
-        
-        if billing_address:
-            result['billing_address'] = self._map_single_address(
-                billing_address,
-                address_fields_config
-            )
-        
-        # Fallback: if no addresses found, use first address for both
-        if not result.get('shipping_address') and not result.get('billing_address') and addresses:
-            first_address = addresses[0]
-            mapped_address = self._map_single_address(first_address, address_fields_config)
-            result['shipping_address'] = mapped_address
-            result['billing_address'] = mapped_address
-        elif not result.get('shipping_address') and result.get('billing_address'):
-            result['shipping_address'] = result['billing_address']
-        elif not result.get('billing_address') and result.get('shipping_address'):
-            result['billing_address'] = result['shipping_address']
-    
-    def _select_address_by_priority(self, addresses: List[Dict], priority_rules: List[str]) -> Optional[Dict]:
-        """Select address based on priority rules"""
-        if not addresses or not priority_rules:
-            return None
-            
-        for rule in priority_rules:
-            for address in addresses:
-                if rule == 'first_address':
-                    return address
-                elif rule == 'is_default_shipping' and address.get('is_default_shipping'):
-                    return address
-                elif rule == 'is_default_billing' and address.get('is_default_billing'):
-                    return address
-                    
-        return addresses[0] if addresses else None
-    
-    def _map_single_address(self, address: Dict, address_fields_config: Dict) -> Dict:
-        """Map single address using configuration"""
-        result = {}
-        
-        for address_field, field_config in address_fields_config.items():
-            if not isinstance(field_config, dict):
-                continue
-                
-            # Get target field(s)
-            target_fields = field_config.get('target')
-            if isinstance(target_fields, str):
-                target_fields = [target_fields]
-            elif not isinstance(target_fields, list):
+            if not target_field:
                 continue
                 
             # Get source value
-            source_path = field_config.get('source_path', address_field)
-            source_value = self._get_nested_value(address, source_path)
+            source_value = self._get_source_value(source_data, source_field, field_config)
             
-            # Apply transformation
-            transform = field_config.get('transform')
-            if transform and source_value is not None:
-                transformed_value = self.transformer.transform(source_value, transform)
+            # Apply transformation if specified
+            if field_config.get('transform') and source_value is not None:
+                transformed_value = self.transformer.transform(
+                    source_value, 
+                    field_config['transform']
+                )
             else:
                 transformed_value = source_value
-                
-            # Handle array values (like street splitting)
-            if isinstance(transformed_value, list) and len(target_fields) == len(transformed_value):
-                for i, target_field in enumerate(target_fields):
-                    self._set_nested_value(result, target_field, transformed_value[i])
-            elif transformed_value is not None:
-                for target_field in target_fields:
-                    self._set_nested_value(result, target_field, transformed_value)
-                    
-        return result
+            
+            # Apply default value if source is None
+            if transformed_value is None and 'default' in field_config:
+                transformed_value = field_config['default']
+            
+            # Set value if not None
+            if transformed_value is not None:
+                self._set_nested_value(
+                    result.customer_data, 
+                    target_field, 
+                    transformed_value
+                )
     
-    def _map_custom_attributes(self, result: Dict, source_data: Dict):
-        """Map custom attributes to metadata"""
+    def _get_source_value(self, source_data: Dict, source_field: str, field_config: Dict) -> Any:
+        source_paths = field_config.get('source_paths', [])
+        for path in source_paths:
+            value = self._get_nested_value(source_data, path)
+            if value is not None and value != '':
+                return value
+        
+        source_path = field_config.get('source_path', source_field)
+        return self._get_nested_value(source_data, source_path)
+    
+    def _map_custom_attributes(self, result: CustomerMappingResult, source_data: Dict):
         custom_attrs = source_data.get('custom_attributes', [])
         
         for attr in custom_attrs:
             attr_code = attr.get('attribute_code')
             attr_value = attr.get('value')
             
-            if attr_code and attr_value is not None:
-                # Map common attributes to specific fields
-                if attr_code == 'gender':
-                    result['metadata']['gender'] = attr_value
-                elif attr_code == 'dob':
-                    result['date_of_birth'] = attr_value
-                elif attr_code == 'taxvat':
-                    result['tax_number'] = attr_value
-                else:
-                    # Map to metadata with prefix
-                    metadata_key = f"magento_{attr_code}"
-                    result['metadata'][metadata_key] = attr_value
+            if not attr_code or attr_value is None:
+                continue
+            
+            attribute_mapping = {
+                'gender': 'metadata.gender',
+                'dob': 'date_of_birth',
+                'taxvat': 'tax_number',
+                'newsletter': 'metadata.subscribed_to_newsletter',
+                'created_at': 'metadata.source_created_at',
+                'updated_at': 'metadata.source_updated_at'
+            }
+            
+            if attr_code in attribute_mapping:
+                self._set_nested_value(
+                    result.customer_data, 
+                    attribute_mapping[attr_code], 
+                    attr_value
+                )
+            else:
+                # Generic mapping to metadata
+                metadata_key = f"custom_{attr_code}"
+                result.metadata[metadata_key] = attr_value
     
-    def _apply_custom_transformations(self, result: Dict, source_data: Dict) -> Dict:
-        """Apply custom transformations defined in config"""
-        transformations_config = self.config.get('transformations', {})
+    def _add_metadata(self, result: CustomerMappingResult, source_data: Dict, context: Dict):
+        metadata = result.customer_data.setdefault('metadata', {})
         
-        for trans_name, trans_rule in transformations_config.items():
-            if trans_name == 'concat' and 'full_name' not in result:
-                firstname = source_data.get('firstname', '')
-                lastname = source_data.get('lastname', '')
-                if firstname or lastname:
-                    result['full_name'] = f"{firstname} {lastname}".strip()
-                    
-        return result
+        # Source system info
+        metadata['source_system'] = self.mapping_config.get('source', 'magento')
+        metadata['source_customer_id'] = source_data.get('id')
+        metadata['source_email'] = source_data.get('email')
+        
+        # Magento-specific metadata
+        if group_id := source_data.get('group_id'):
+            metadata['customer_group_id'] = group_id
+        
+        if store_id := source_data.get('store_id'):
+            metadata['store_id'] = store_id
+        
+        if website_id := source_data.get('website_id'):
+            metadata['website_id'] = website_id
+        
+        # Sync metadata
+        metadata['sync_timestamp'] = context.get('sync_timestamp', datetime.now().isoformat())
+        metadata['batch_id'] = context.get('batch_id', 'unknown')
+        metadata['migration_version'] = '1.0'
+        
+        # Add custom metadata
+        metadata.update(result.metadata)
     
-    # Helper methods (keep from original)
-    def _clean_phone(self, phone: str) -> str:
-        """Clean phone number"""
+    def _apply_post_mapping_transformations(self, customer_data: Dict):
+        """Apply any post-mapping transformations"""
+        # Ensure email is lowercase
+        if email := customer_data.get('email'):
+            customer_data['email'] = email.lower().strip()
+        
+        # Clean phone number if exists
+        if phone := customer_data.get('phone'):
+            customer_data['phone'] = self._clean_phone_number(phone)
+    
+    def _validate_output_format(self, customer_data: Dict):
+        """Validate mapped output format against Medusa requirements"""
+        required_output_fields = ['email', 'first_name', 'last_name']
+        
+        for field in required_output_fields:
+            if not customer_data.get(field):
+                raise ValueError(f"Missing required output field: {field}")
+        
+        # Email format validation for output
+        email = customer_data.get('email', '')
+        if not self._is_valid_email(email):
+            raise ValueError(f"Invalid email format in output: {email}")
+    
+    def _validate_business_rules(self, source_data: Dict) -> bool:
+        email = source_data.get('email', '')
+        if isinstance(email, str):
+            email = email.lower()
+        
+        test_domains = ['test.com', 'example.com', 'fake.com']
+        
+        if email:
+            logger.debug(f"Validating email: {email}")
+        
+        if email and any(domain in email for domain in test_domains):
+            logger.warning(f"Test email detected: {email}. Will still sync but mark as test.")
+            # Không return False nữa, chỉ log warning
+            # return False
+        
+        # Rule 2: Check minimum required fields for business customers
+        # Chỉ kiểm tra nếu là business customer (group_id = 2)
+        group_id = source_data.get('group_id')
+        if group_id == 2:  # Business group
+            company = source_data.get('company')
+            taxvat = source_data.get('taxvat')
+            
+            # Nếu là business customer nhưng thiếu company hoặc taxvat
+            if not company or not taxvat:
+                logger.warning(f"Business customer {email} missing company or taxvat")
+                # Có thể return False nếu muốn strict validation
+                # return False
+        
+        # Luôn return True để không block sync
+        # Các rule business này chỉ nên là warnings, không phải errors
+        return True
+    
+    def _clean_phone_number(self, phone: str) -> str:
+        """Clean and standardize phone number"""
         if not phone:
             return ""
         
-        # Remove non-numeric characters except +
+        # Remove all non-digit characters except +
         cleaned = re.sub(r'[^\d+]', '', phone)
         
-        # Ensure it starts with +
+        if not cleaned:
+            return ""
+        
+        # Ensure international format
         if not cleaned.startswith('+'):
-            # Assume US number if no country code
+            # Remove leading zeros
+            cleaned = cleaned.lstrip('0')
+            
+            # Add country code based on length
             if len(cleaned) == 10:
-                cleaned = f"+1{cleaned}"
+                cleaned = f"+1{cleaned}"  # Default to US
             elif len(cleaned) == 11 and cleaned.startswith('1'):
                 cleaned = f"+{cleaned}"
         
         return cleaned
     
-    def _map_country_code(self, magento_country_id: str) -> str:
-        if not magento_country_id:
-            return None
+    def _is_valid_email(self, email: str) -> bool:
+        """Validate email format"""
+        if not email:
+            return False
         
-        # country_map = {
-        #     'US': 'us', 'GB': 'gb', 'CA': 'ca', 'AU': 'au',
-        #     'DE': 'de', 'FR': 'fr', 'IT': 'it', 'ES': 'es',
-        #     'JP': 'jp', 'CN': 'cn', 'IN': 'in', 'BR': 'br',
-        #     'MX': 'mx',
-        # }
-        
-        country = pycountry.countries.get(alpha_2=magento_country_id.upper())
-        return country.alpha_2.lower() if country else magento_country_id.lower()
+        pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        return bool(re.match(pattern, email))
     
-    def _add_metadata(self, result: Dict, source_data: Dict, context: Dict) -> Dict:
-        """Add additional metadata"""
-        # Add source system info
-        result['metadata']['source_system'] = self.config.get('source', 'magento')
-        result['metadata']['source_id'] = source_data.get('id')
+    def _is_valid_phone(self, phone: str) -> bool:
+        """Validate phone number format"""
+        if not phone:
+            return True  # Phone is optional
         
-        # Add group/customer segment if available
-        group_id = source_data.get('group_id')
-        if group_id:
-            result['metadata']['customer_group'] = group_id
+        cleaned = re.sub(r'[^\d+]', '', phone)
         
-        # Add store info
-        store_id = source_data.get('store_id')
-        if store_id:
-            result['metadata']['store_id'] = store_id
-        
-        # Add sync info
-        result['metadata']['sync_timestamp'] = context.get('sync_timestamp', datetime.now().isoformat())
-        
-        return result
+        # Basic validation: between 10 and 15 digits including country code
+        digits = cleaned.replace('+', '')
+        return 10 <= len(digits) <= 15
     
     def _get_nested_value(self, data: Dict, path: str, default: Any = None) -> Any:
         """Get value from nested dictionary using dot notation"""
-        if not path:
+        if not path or not data:
             return default
-            
+        
         keys = path.split('.')
-        value = data
+        current = data
         
         for key in keys:
-            if isinstance(value, dict):
-                value = value.get(key, default)
-                if value is default:
+            if isinstance(current, dict):
+                current = current.get(key, default)
+                if current is default:
                     break
             else:
                 return default
-                
-        return value
+        
+        return current
     
     def _set_nested_value(self, data: Dict, path: str, value: Any):
         """Set value in nested dictionary using dot notation"""
         if not path:
             return
-            
+        
         keys = path.split('.')
         current = data
         
@@ -322,41 +340,5 @@ class CustomerMapper(BaseMapper):
             if key not in current:
                 current[key] = {}
             current = current[key]
-            
+        
         current[keys[-1]] = value
-    
-    def validate_customer(self, customer_data: Dict) -> Dict[str, List[str]]:
-        """Validate customer data"""
-        errors = {
-            "missing_required": [],
-            "invalid_format": []
-        }
-        
-        # Check required fields from config
-        required_fields = self.config.get('validation', {}).get('required_fields', ['email', 'firstname', 'lastname'])
-        for field in required_fields:
-            if field not in customer_data or not customer_data[field]:
-                errors["missing_required"].append(field)
-        
-        # Validate email format
-        email = customer_data.get('email', '')
-        if email and not self._is_valid_email(email):
-            errors["invalid_format"].append('email')
-        
-        # Validate phone if present
-        phone = customer_data.get('telephone') or customer_data.get('phone', '')
-        if phone and not self._is_valid_phone(phone):
-            errors["invalid_format"].append('phone')
-        
-        return errors
-    
-    def _is_valid_email(self, email: str) -> bool:
-        """Validate email format"""
-        pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-        return bool(re.match(pattern, email))
-    
-    def _is_valid_phone(self, phone: str) -> bool:
-        """Validate phone format"""
-        # Remove all non-digit characters except +
-        cleaned = re.sub(r'[^\d+]', '', phone)
-        return len(cleaned) >= 10 and len(cleaned) <= 15

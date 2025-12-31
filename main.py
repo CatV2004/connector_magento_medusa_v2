@@ -255,6 +255,252 @@ def sync_products_interactive(magento: MagentoConnector, medusa: MedusaConnector
         logger.error(f"Product sync failed: {e}")
 
 
+def sync_customers_interactive(magento: MagentoConnector, medusa: MedusaConnector):
+    """Interactive customer sync"""
+    print("\n" + "=" * 50)
+    print("SYNC CUSTOMERS")
+    print("=" * 50)
+    
+    # Get sync settings
+    batch_size = get_batch_size()
+    
+    max_pages = None
+    limit_pages = get_choice("Limit number of pages? (yes/no): ").lower()
+    if limit_pages == 'yes':
+        try:
+            max_pages = int(get_choice("Max pages to sync: "))
+        except ValueError:
+            print("Invalid number, no limit will be applied.")
+    
+    # Address sync option
+    sync_addresses = get_choice("Sync customer addresses? (yes/no): ").lower() == 'yes'
+    
+    # Customer filtering options
+    print("\nCustomer filtering options:")
+    print("  1. Sync all customers")
+    print("  2. Sync specific customer by ID")
+    print("  3. Sync customers by email domain")
+    
+    filter_choice = get_choice("\nSelect filter option (1-3): ")
+    
+    specific_customer_id = None
+    email_domain = None
+    
+    if filter_choice == '2':
+        try:
+            specific_customer_id = int(get_choice("Enter Magento customer ID: "))
+        except ValueError:
+            print("Invalid customer ID, will sync all customers.")
+    
+    elif filter_choice == '3':
+        email_domain = get_choice("Enter email domain (e.g., gmail.com): ").strip()
+        if email_domain and '@' in email_domain:
+            print("Please enter domain only (without @), e.g., 'gmail.com'")
+            email_domain = None
+    
+    # Confirm
+    print(f"\nSettings:")
+    print(f"  Batch size: {batch_size}")
+    print(f"  Max pages: {max_pages or 'No limit'}")
+    print(f"  Sync addresses: {'Yes' if sync_addresses else 'No'}")
+    
+    if specific_customer_id:
+        print(f"  Customer ID: {specific_customer_id}")
+    elif email_domain:
+        print(f"  Email domain filter: @{email_domain}")
+    
+    dry_run = get_choice("\nPerform dry run? (yes/no): ").lower() == 'yes'
+    if dry_run:
+        print("⚠️  DRY RUN MODE - No changes will be made")
+    
+    confirm = get_choice("\nProceed with sync? (yes/no): ").lower()
+    
+    if confirm != 'yes':
+        print("Sync cancelled.")
+        return
+    
+    print("\nStarting customer sync...")
+    
+    try:
+        service = CustomerSyncService(magento, medusa)
+        
+        if specific_customer_id:
+            # Sync single customer
+            print(f"Syncing single customer: {specific_customer_id}")
+            result = service.sync_single_customer(
+                magento_customer_id=specific_customer_id,
+                sync_addresses=sync_addresses
+            )
+            
+            print("\n" + "=" * 50)
+            print("SINGLE CUSTOMER SYNC COMPLETED")
+            print("=" * 50)
+            
+            if result['status'] == 'success':
+                print(f"✓ Customer: {result['email']}")
+                print(f"  Action: {result['action']}")
+                print(f"  Medusa ID: {result['customer_id']}")
+                
+                if 'addresses_total' in result:
+                    print(f"  Addresses: {result.get('addresses_created', 0)} created, "
+                          f"{result.get('addresses_updated', 0)} updated, "
+                          f"{result.get('addresses_failed', 0)} failed")
+            else:
+                print(f"✗ Customer sync failed: {result.get('reason', 'Unknown error')}")
+        
+        else:
+            # Sync all customers with optional filtering
+            if email_domain:
+                print(f"Filtering customers by domain: @{email_domain}")
+                # Note: You might need to implement filtering in CustomerSyncService
+                # For now, we'll sync all and filter in post-processing
+                print("Note: Email domain filtering requires custom implementation")
+            
+            result = service.sync_all(
+                batch_size=batch_size,
+                max_pages=max_pages
+            )
+            
+            print("\n" + "=" * 50)
+            print("CUSTOMER SYNC COMPLETED")
+            print("=" * 50)
+            
+            stats = result.get('stats', {})
+            print(f"Total processed: {stats.get('total_processed', 0)}")
+            print(f"Successful: {stats.get('successful', 0)}")
+            print(f"Failed: {stats.get('failed', 0)}")
+            print(f"Skipped: {stats.get('skipped', 0)}")
+            print(f"New customers: {stats.get('new_customers', 0)}")
+            print(f"Updated customers: {stats.get('updated_customers', 0)}")
+            
+            if sync_addresses:
+                print(f"\nAddress statistics:")
+                print(f"  Addresses processed: {stats.get('addresses_processed', 0)}")
+                print(f"  Addresses created: {stats.get('addresses_created', 0)}")
+                print(f"  Addresses updated: {stats.get('addresses_updated', 0)}")
+                print(f"  Addresses failed: {stats.get('addresses_failed', 0)}")
+            
+            dlq_count = result.get('dlq_count', 0)
+            if dlq_count > 0:
+                print(f"\n⚠️  {dlq_count} customers failed and moved to DLQ")
+                print("  Use option 6 to view DLQ items")
+            
+            success_rate = stats.get('customer_success_rate', '0%')
+            print(f"\nSuccess rate: {success_rate}")
+        
+        # Save results if not dry run
+        if not dry_run and not specific_customer_id:
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            result_file = f"customer_sync_results_{timestamp}.json"
+            with open(result_file, 'w') as f:
+                json.dump(result, f, indent=2, default=str)
+            print(f"\nResults saved to: {result_file}")
+        
+    except Exception as e:
+        print(f"\n❌ Customer sync failed: {e}")
+        logger.error(f"Customer sync failed: {e}")
+
+
+def sync_customers_batch_mode(magento: MagentoConnector, medusa: MedusaConnector):
+    """Batch mode for customer sync with email filtering"""
+    print("\n" + "=" * 50)
+    print("CUSTOMER SYNC - BATCH MODE")
+    print("=" * 50)
+    
+    # Load customer emails from file
+    emails_file = get_choice("Enter path to emails file (CSV/TXT, optional): ").strip()
+    customer_emails = set()
+    
+    if emails_file and Path(emails_file).exists():
+        try:
+            import csv
+            with open(emails_file, 'r') as f:
+                if emails_file.endswith('.csv'):
+                    reader = csv.reader(f)
+                    for row in reader:
+                        if row:
+                            email = row[0].strip().lower()
+                            if '@' in email:
+                                customer_emails.add(email)
+                else:
+                    for line in f:
+                        email = line.strip().lower()
+                        if '@' in email:
+                            customer_emails.add(email)
+            
+            print(f"Loaded {len(customer_emails)} customer emails from file")
+        except Exception as e:
+            print(f"Error loading emails file: {e}")
+            return
+    
+    # Sync options
+    batch_size = get_batch_size()
+    sync_addresses = get_choice("Sync customer addresses? (yes/no): ").lower() == 'yes'
+    
+    confirm = get_choice("\nProceed with batch sync? (yes/no): ").lower()
+    
+    if confirm != 'yes':
+        print("Batch sync cancelled.")
+        return
+    
+    print("\nStarting batch customer sync...")
+    
+    try:
+        service = CustomerSyncService(magento, medusa)
+        
+        if customer_emails:
+            # Sync specific customers by email
+            print(f"Syncing {len(customer_emails)} specific customers...")
+            results = []
+            
+            for email in list(customer_emails)[:100]:  # Limit to 100 for safety
+                try:
+                    # Find customer by email in Magento
+                    customers = magento.search_customers(field='email', value=email)
+                    if customers:
+                        customer = customers[0]
+                        result = service.sync_single_customer(
+                            magento_customer_id=customer.get('id'),
+                            sync_addresses=sync_addresses
+                        )
+                        results.append(result)
+                        
+                        if result['status'] == 'success':
+                            print(f"✓ {email}")
+                        else:
+                            print(f"✗ {email}: {result.get('reason', 'Failed')}")
+                    else:
+                        print(f"⚠️ {email}: Not found in Magento")
+                        
+                except Exception as e:
+                    print(f"✗ {email}: Error - {str(e)[:100]}")
+            
+            # Summary
+            successful = sum(1 for r in results if r['status'] == 'success')
+            failed = len(results) - successful
+            
+            print(f"\nBatch sync completed:")
+            print(f"  Successful: {successful}")
+            print(f"  Failed: {failed}")
+            
+        else:
+            # Sync all customers
+            result = service.sync_all(
+                batch_size=batch_size,
+                sync_addresses=sync_addresses
+            )
+            
+            stats = result.get('stats', {})
+            print(f"\nBatch sync completed:")
+            print(f"  Total processed: {stats.get('total_processed', 0)}")
+            print(f"  Successful: {stats.get('successful', 0)}")
+            print(f"  Failed: {stats.get('failed', 0)}")
+        
+    except Exception as e:
+        print(f"\n❌ Batch customer sync failed: {e}")
+        logger.error(f"Batch customer sync failed: {e}")
+
+
 def get_batch_size() -> int:
     """Get batch size from user"""
     default = 50
@@ -625,9 +871,27 @@ def main():
             
             elif choice == '4':
                 # Sync customers
-                print("\nCustomer sync requires CLI mode.")
-                print("Use: python cli.py sync customers")
-                input("\nPress Enter to continue...")
+                if magento is None or medusa is None:
+                    print("\nInitializing connectors...")
+                    magento = MagentoConnector()
+                    medusa = MedusaConnector()
+                
+                print("\nCustomer Sync Options:")
+                print("  1. Interactive sync (with filters)")
+                print("  2. Batch sync (from file)")
+                print("  3. Back to main menu")
+                
+                sub_choice = get_choice("\nSelect option (1-3): ")
+                
+                if sub_choice == '1':
+                    sync_customers_interactive(magento, medusa)
+                elif sub_choice == '2':
+                    # sync_customers_batch_mode(magento, medusa)
+                    print("Batch mode is under development.")
+                elif sub_choice == '3':
+                    continue
+                else:
+                    print("Invalid option, returning to main menu.")
             
             elif choice == '5':
                 # Run pipeline

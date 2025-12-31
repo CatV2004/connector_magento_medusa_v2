@@ -2,6 +2,8 @@ from config.settings import MEDUSA
 from connectors.base.base_connector import BaseConnector
 from connectors.medusa.medusa_auth import MedusaAuth
 from utils.logger import logger
+import secrets
+from datetime import datetime
 
 
 class MedusaConnector(BaseConnector):
@@ -57,8 +59,91 @@ class MedusaConnector(BaseConnector):
             
         return self.delete_product(product_id)
 
+    def get_customers(self, page: int = 1, page_size: int = 100, email: str = None) -> list[dict]:
+        offset = (page - 1) * page_size
+        params = {
+            "limit": page_size,
+            "offset": offset,
+        }
+        
+        if email:
+            params["email"] = email
+            
+        try:
+            resp = self._request("get", "customers", params=params)
+            return resp.get("customers", [])
+        except Exception as e:
+            logger.error(f"Failed to get customers: {e}")
+            return []
+        
+    def get_customer(self, customer_id: str) -> dict:
+        return self._request("get", f"customers/{customer_id}")
+    
+    def get_customer_by_email(self, email: str) -> dict:
+        customers = self.get_customers(email=email, page_size=1)
+        return customers[0] if customers else None
+
     def create_customer(self, data: dict):
         return self._request("post", "customers", json=data)
+    
+    def update_customer(self, customer_id: str, data: dict):
+        return self._request("post", f"customers/{customer_id}", json=data)
+    
+    def add_address(self, customer_id: str, address_data:dict):
+        return self._request("post", f"customers/{customer_id}/addresses", json=address_data)
+    
+    def update_address(self, customer_id: str, address_id: str, address_data: dict):
+        return self._request("post", f"customers/{customer_id}/addresses/{address_id}", json=address_data)
+
+    def update_customer(self, customer_id: str, update_data: dict) -> dict:
+        logger.info(f"[Medusa] Updating customer: {customer_id}")
+        
+        update_data.pop('password', None)
+        
+        return self._request("post", f"customers/{customer_id}", json=update_data)
+
+    def delete_customer(self, customer_id: str) -> dict:
+        logger.info(f"[Medusa] Deleting customer: {customer_id}")
+        
+        try:
+            return self._request("delete", f"customers/{customer_id}")
+        except Exception as e:
+            logger.error(f"[Medusa] Failed to delete customer {customer_id}: {e}")
+            raise
+
+    def send_invite(self, customer_id: str) -> dict:
+        logger.info(f"[Medusa] Sending invite/reset email to customer: {customer_id}")
+        
+        try:
+            response = self._request("post", f"customers/{customer_id}/invite", json={})
+            logger.info(f"[Medusa] Invite sent successfully to customer: {customer_id}")
+            return response
+            
+        except Exception as e:
+            logger.error(f"[Medusa] Failed to send invite via dedicated endpoint: {e}")
+            
+            logger.info(f"[Medusa] Using fallback method for customer {customer_id}")
+            
+            reset_token = self._generate_reset_token()
+            
+            update_data = {
+                "metadata": {
+                    "password_reset_token": reset_token,
+                    "password_reset_required": True,
+                    "password_reset_sent_at": self._get_current_timestamp()
+                }
+            }
+            
+            response = self.update_customer(customer_id, update_data)
+            
+            logger.info(f"[Medusa] Reset token generated for customer: {customer_id}")
+            return response
+
+    def _generate_reset_token(self, length: int = 64) -> str:
+        return secrets.token_urlsafe(length)
+    
+    def _get_current_timestamp(self) -> str:
+        return datetime.now().isoformat()
     
     def create_category(self, data: dict):
         return self._request("post", "product-categories", json=data)
