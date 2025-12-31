@@ -146,6 +146,17 @@ connector_magento_medusa_v2/
 │   └── __init__.py
 │
 ├── core/                          # Business Logic Core
+│   ├── mapping/                  
+│   │   ├── __init__.py
+│   │   ├── base_mapping_builder.py
+│   │   ├── category_mapping_builder.py
+│   │   ├── product_mapping_builder.py
+│   │   ├── address_mapping_builder.py
+│   │   ├── customer_mapping_builder.py
+│   │   ├── order_mapping_builder.py
+│   │   ├── invoice_mapping_builder.py
+│   │   ├── payment_mapping_builder.py
+│   │   └── mapping_factory.py
 │   ├── pipeline/                  # Migration pipeline engine
 │   │   ├── __init__.py
 │   │   ├── async_sync_pipeline.py
