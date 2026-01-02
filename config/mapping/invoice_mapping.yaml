@@ -1,0 +1,94 @@
+version: "2.0"
+source: "magento"
+target: "medusa"
+entity: "invoice"
+
+# Invoice state mapping
+state_mapping:
+  pending: "draft"
+  paid: "posted"
+  canceled: "voided"
+  refunded: "refunded"
+
+fields:
+  increment_id:
+    target: "metadata.source_invoice_number"
+    required: true
+    type: "string"
+    
+  order_id:
+    target: "order_id"
+    required: true
+    type: "string"
+    transform: "map_order_id"
+    
+  state:
+    target: "status"
+    required: true
+    type: "string"
+    transform: "map_invoice_state"
+    
+  grand_total:
+    target: "amount"
+    required: true
+    type: "decimal"
+    
+  tax_amount:
+    target: "tax_amount"
+    required: false
+    type: "decimal"
+    
+  shipping_amount:
+    target: "shipping_amount"
+    required: false
+    type: "decimal"
+    
+  subtotal:
+    target: "subtotal"
+    required: false
+    type: "decimal"
+    
+  # Invoice items
+  items:
+    target: "items"
+    required: false
+    type: "array"
+    transform: "map_invoice_items"
+    
+  # Transaction references
+  transaction_id:
+    target: "transaction_id"
+    required: false
+    type: "string"
+    
+  # Timestamps
+  created_at:
+    target: "created_at"
+    required: true
+    type: "datetime"
+    
+  updated_at:
+    target: "updated_at"
+    required: true
+    type: "datetime"
+
+# Custom transformations
+transformations:
+  items:
+    rule: |
+      for item in items:
+        mapped_item = {
+          'product_id': map_product_id(item.product_id),
+          'quantity': item.qty,
+          'unit_price': item.price,
+          'total': item.row_total,
+          'metadata': {
+            'source_item_id': item.entity_id,
+            'sku': item.sku
+          }
+        }
+    
+
+validation:
+  required_fields: ["increment_id", "order_id", "grand_total"]
+  validate_amount_consistency: true

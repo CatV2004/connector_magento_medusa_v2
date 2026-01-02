@@ -1,0 +1,74 @@
+version: "2.0"
+source: "magento"
+target: "medusa"
+entity: "payment"
+
+# Payment method mapping
+method_mapping:
+  checkmo: "manual"
+  banktransfer: "bank_transfer"
+  cashondelivery: "cash_on_delivery"
+  creditcard: "stripe"
+  paypal_express: "paypal"
+  stripe_payments: "stripe"
+
+fields:
+  entity_id:
+    target: "metadata.source_payment_id"
+    required: true
+    type: "string"
+    
+  order_id:
+    target: "order_id"
+    required: true
+    type: "string"
+    transform: "map_order_id"
+    
+  method:
+    target: "provider_id"
+    required: true
+    type: "string"
+    transform: "map_payment_method"
+    
+  amount_ordered:
+    target: "amount"
+    required: true
+    type: "decimal"
+    
+  amount_paid:
+    target: "amount_refunded"
+    required: false
+    type: "decimal"
+    
+  cc_last4:
+    target: "data.last4"
+    required: false
+    type: "string"
+    
+  cc_type:
+    target: "data.brand"
+    required: false
+    type: "string"
+    
+  # Transaction details
+  last_trans_id:
+    target: "transaction_id"
+    required: false
+    type: "string"
+    
+  parent_id:
+    target: null  # Not mapped directly
+    required: false
+    type: "string"
+    
+  created_at:
+    target: "created_at"
+    required: true
+    type: "datetime"
+
+# Metadata only - không tạo payment trong Medusa nếu không cần
+metadata_only: true
+
+validation:
+  required_fields: ["entity_id", "order_id", "method"]
+  skip_if_no_transaction_id: false

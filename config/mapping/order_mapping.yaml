@@ -1,0 +1,118 @@
+version: "2.0"
+source: "magento"
+target: "medusa"
+entity: "order"
+
+# Status mapping - CRITICAL cho business logic
+status_mapping:
+  pending: "pending"
+  processing: "pending"
+  complete: "completed"
+  closed: "archived"
+  canceled: "cancelled"
+  holded: "pending"
+  payment_review: "pending"
+
+fields:
+  # Core order fields
+  increment_id:
+    target: "metadata.source_order_number"
+    required: true
+    type: "string"
+    
+  status:
+    target: "status"
+    required: true
+    type: "string"
+    transform: "map_order_status"
+    
+  customer_id:
+    target: "customer_id"
+    required: false
+    type: "string"
+    transform: "map_customer_id"
+    
+  # Monetary fields - quan trọng cho reconciliation
+  grand_total:
+    target: "total"
+    required: true
+    type: "decimal"
+    validation: "positive_decimal"
+    
+  subtotal:
+    target: "subtotal"
+    required: true
+    type: "decimal"
+    
+  tax_amount:
+    target: "tax_total"
+    required: false
+    type: "decimal"
+    default: 0
+    
+  shipping_amount:
+    target: "shipping_total"
+    required: false
+    type: "decimal"
+    default: 0
+    
+  discount_amount:
+    target: "discount_total"
+    required: false
+    type: "decimal"
+    default: 0
+    
+  # Line items - COMPLEX mapping
+  items:
+    target: "items"
+    required: true
+    type: "array"
+    transform: "map_order_items"
+    
+  # Address information
+  billing_address:
+    target: "billing_address"
+    required: true
+    type: "object"
+    transform: "map_address"
+    
+  shipping_address:
+    target: "shipping_address"
+    required: false
+    type: "object"
+    transform: "map_address"
+    
+  # Timestamps cho delta migration
+  created_at:
+    target: "created_at"
+    required: true
+    type: "datetime"
+    
+  updated_at:
+    target: "updated_at"
+    required: true
+    type: "datetime"
+
+# Custom transformations
+transformations:
+  total:
+    rule: "sum(items.total) + tax_amount + shipping_amount - discount_amount"
+    
+  items:
+    rule: |
+      for item in items:
+        mapped_item = {
+          'title': item.name,
+          'quantity': item.qty_ordered,
+          'unit_price': item.price,
+          'product_id': map_product_id(item.product_id),
+          'metadata': {
+            'source_item_id': item.item_id,
+            'sku': item.sku
+          }
+        }
+
+validation:
+  required_fields: ["increment_id", "grand_total", "customer_email"]
+  monetary_consistency: true  #will trigger reconciliation check
+  max_items_per_order: 100

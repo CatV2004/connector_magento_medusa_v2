@@ -14,13 +14,10 @@ class CategorySyncService:
     def __init__(self, magento: MagentoConnector, medusa: MedusaConnector):
         self.magento = magento
         self.medusa = medusa
-        logger.info("Initializing CategorySyncService")
-        print("Initializing CategorySyncService")
 
         mapping = MappingFactory(
             Path("config/mapping")
         ).get("category")
-        logger.debug(f"Category mapping config: {mapping}") 
 
         self.mapper = CategoryMapper(
             mapping_config=mapping,

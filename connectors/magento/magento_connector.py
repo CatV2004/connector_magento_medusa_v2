@@ -141,3 +141,58 @@ class MagentoConnector(BaseConnector):
     
     def get_customer(self, customer_id:int):
         return self._request("get", f"customers/{customer_id}")
+
+    def get_order(self, order_id: int):
+        return self._request("get", f"orders/{order_id}")
+    
+    def get_order_invoices(self, order_id: int):
+        return self._request("get", f"orders/{order_id}/invoices").get("items", [])
+    
+    def get_order_payments(self, order_id: int):
+        return self._request("get", f"orders/{order_id}/payments").get("items", [])
+    
+    def search_orders(
+        self,
+        filters: dict,
+        page_size: int = 100,
+        current_page: int = 1
+    ):
+        params = {
+            "searchCriteria[pageSize]": page_size,
+            "searchCriteria[currentPage]": current_page,
+        }
+
+        filter_group_index = 0
+
+        for field, value in filters.items():
+            # Case 1: simple equality
+            if not isinstance(value, dict):
+                params[f"searchCriteria[filter_groups][{filter_group_index}][filters][0][field]"] = field
+                params[f"searchCriteria[filter_groups][{filter_group_index}][filters][0][value]"] = value
+                params[f"searchCriteria[filter_groups][{filter_group_index}][filters][0][condition_type]"] = "eq"
+                filter_group_index += 1
+                continue
+
+            # Case 2: range filter (from / to)
+            filter_index = 0
+            for condition, condition_value in value.items():
+                condition_type = {
+                    "from": "gteq",
+                    "to": "lteq"
+                }.get(condition)
+
+                if not condition_type:
+                    continue
+
+                params[f"searchCriteria[filter_groups][{filter_group_index}][filters][{filter_index}][field]"] = field
+                params[f"searchCriteria[filter_groups][{filter_group_index}][filters][{filter_index}][value]"] = condition_value
+                params[f"searchCriteria[filter_groups][{filter_group_index}][filters][{filter_index}][condition_type]"] = condition_type
+                filter_index += 1
+
+            filter_group_index += 1
+        logger.info(f"Searching orders with params: {params}")
+        response = self._request("get", "orders", params=params)
+        return response.get("items", [])
+    
+    def get_invoice_payments(self, invoice_id: int):
+        return self._request("get", f"invoices/{invoice_id}/payments").get("items", [])

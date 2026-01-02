@@ -255,3 +255,27 @@ class MedusaConnector(BaseConnector):
             offset += limit
 
         return all_categories
+
+    def get_order(self, order_id: str) -> dict:
+        return self._request("get", f"orders/{order_id}")
+    
+    def get_order_invoices(self, order_id: str) -> list[dict]:
+        resp = self._request("get", f"orders/{order_id}/invoices")
+        return resp.get("invoices", [])
+    
+    def get_order_payments(self, order_id: str) -> list[dict]:
+        resp = self._request("get", f"orders/{order_id}/payments")
+        return resp.get("payments", [])
+    
+    def search_orders(self, params: dict) -> list[dict]:
+        resp = self._request("get", "orders", params=params)
+        return resp.get("orders", [])
+    
+    def create_order(self, data: dict) -> dict:
+        return self._request("post", "orders", json=data)
+
+    def create_payment(self, data: dict) -> dict:
+        return self._request("post", "payments", json=data)
+
+    def create_invoice(self, data: dict) -> dict:   
+        return self._request("post", "invoices", json=data)
